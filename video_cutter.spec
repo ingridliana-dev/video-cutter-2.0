@@ -1,11 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
 
 block_cipher = None
+
+# Verificar se a pasta ffmpeg existe
+ffmpeg_dir = os.path.join(os.getcwd(), 'ffmpeg')
+ffmpeg_binaries = []
+
+if os.path.exists(ffmpeg_dir):
+    # Adicionar os binários do FFmpeg
+    ffmpeg_bin_dir = os.path.join(ffmpeg_dir, 'bin')
+    if os.path.exists(ffmpeg_bin_dir):
+        for file in os.listdir(ffmpeg_bin_dir):
+            if file.endswith('.exe') or file.endswith('.dll'):
+                source = os.path.join(ffmpeg_bin_dir, file)
+                dest = os.path.join('ffmpeg', 'bin', file)
+                ffmpeg_binaries.append((source, dest))
 
 a = Analysis(
     ['video_cutter_gui.py'],
     pathex=[],
-    binaries=[],
+    binaries=ffmpeg_binaries,
     datas=[],
     hiddenimports=[],
     hookspath=[],

@@ -6,6 +6,7 @@ import random
 import time
 import shutil
 from pathlib import Path
+import ffmpeg_utils
 
 print("Iniciando aplicação...")
 
@@ -146,7 +147,7 @@ class VideoCutterWorker(QThread):
 
                 # Executar o comando FFmpeg
                 try:
-                    self.process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
                     stdout, stderr = self.process.communicate()
 
                     if self.process.returncode != 0:
@@ -185,7 +186,7 @@ class VideoCutterWorker(QThread):
         """Obtém a duração de um arquivo de vídeo usando FFmpeg"""
         try:
             cmd = ["ffprobe", "-i", video_file, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = ffmpeg_utils.run_ffprobe_command(cmd)
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())
             return -1
@@ -205,7 +206,16 @@ class VideoCutterWorker(QThread):
 class VideoCutterApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Verificar se o FFmpeg está disponível
+        self.check_ffmpeg()
         self.initUI()
+
+    def check_ffmpeg(self):
+        """Verifica se o FFmpeg está disponível"""
+        if not ffmpeg_utils.check_ffmpeg():
+            QMessageBox.critical(self, "Erro", "FFmpeg não encontrado no sistema ou no pacote da aplicação.\n\n"
+                                "A aplicação não poderá funcionar corretamente.")
+            print("FFmpeg não encontrado!")
 
     def initUI(self):
         # Configurar a janela principal

@@ -14,10 +14,12 @@ Uma interface gráfica para cortar vídeos longos em segmentos menores, adiciona
 ## Requisitos
 
 Para usar o executável:
+
 - Windows 10 ou superior
-- FFmpeg instalado e disponível no PATH do sistema
+- Não é necessário instalar o FFmpeg, pois ele já está incluído no pacote
 
 Para desenvolvimento:
+
 - Python 3.11 ou superior
 - PyQt5
 - FFmpeg-python
@@ -26,8 +28,8 @@ Para desenvolvimento:
 
 ### Versão Executável
 
-1. Baixe o arquivo `Video Cutter.exe` da pasta `dist`
-2. Certifique-se de que o FFmpeg está instalado e disponível no PATH
+1. Baixe a pasta `dist` completa (contém o executável e o FFmpeg)
+2. Execute o arquivo `instalar.bat` para criar um atalho na área de trabalho (opcional)
 3. Execute o arquivo `Video Cutter.exe`
 4. Configure os parâmetros na interface:
    - Selecione o vídeo de entrada
@@ -36,6 +38,8 @@ Para desenvolvimento:
    - Configure o prefixo de saída, índice inicial e durações
    - Opcionalmente, selecione uma pasta de saída diferente
 5. Clique em "Iniciar Corte" para começar o processamento
+
+**Importante**: Não remova a pasta `ffmpeg` que está junto com o executável, pois ela contém os componentes necessários para o funcionamento do programa.
 
 ### Versão de Desenvolvimento
 
