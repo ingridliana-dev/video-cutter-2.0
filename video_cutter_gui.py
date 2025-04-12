@@ -7,6 +7,7 @@ import time
 import shutil
 from pathlib import Path
 import ffmpeg_utils
+import re
 
 print("Iniciando aplicação...")
 
@@ -14,8 +15,9 @@ try:
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QPushButton,
                                 QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
                                 QLineEdit, QSpinBox, QProgressBar, QTextEdit, QGroupBox,
-                                QMessageBox)
+                                QMessageBox, QColorDialog, QDoubleSpinBox)
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QProcess
+    from PyQt5.QtGui import QColor
     print("PyQt5 importado com sucesso!")
 except Exception as e:
     print(f"Erro ao importar PyQt5: {e}")
@@ -28,7 +30,8 @@ class VideoCutterWorker(QThread):
     error_signal = pyqtSignal(str)
 
     def __init__(self, input_file, image_file, selo_file, output_prefix, start_index,
-                 min_duration, max_duration, output_directory=None):
+                 min_duration, max_duration, output_directory=None,
+                 chroma_color="0x00d600", similarity=0.30, blend=0.35):
         super().__init__()
         self.input_file = input_file
         self.image_file = image_file
@@ -38,6 +41,9 @@ class VideoCutterWorker(QThread):
         self.min_duration = min_duration
         self.max_duration = max_duration
         self.output_directory = output_directory
+        self.chroma_color = chroma_color
+        self.similarity = similarity
+        self.blend = blend
         self.is_running = True
         self.process = None
 
@@ -122,7 +128,7 @@ class VideoCutterWorker(QThread):
                 filter_complex = [
                     f"[0:v]trim=start={current_time}:duration={duration},setpts=PTS-STARTPTS[segment];",
                     f"[2:v]format=rgba,setpts=PTS-STARTPTS[selo_rgba];",
-                    f"[selo_rgba]colorkey=color=0x00d600:similarity=0.15:blend=0.0[selo_chroma];",
+                    f"[selo_rgba]colorkey=color={self.chroma_color}:similarity={self.similarity}:blend={self.blend}[selo_chroma];",
                     f"[selo_chroma]tpad=start_duration=10:color=black@0.0[selo_padded];",
                     f"[segment][selo_padded]overlay=(W-w)/2:(H-h)/2:eof_action=pass[main_with_selo];",
                     f"[main_with_selo][1:v]overlay=(W-w)/2:(H-h)/2:enable='eq(n,0)'[with_image];",
@@ -321,7 +327,7 @@ class VideoCutterApp(QMainWindow):
         prefix_layout = QHBoxLayout()
         prefix_label = QLabel("Prefixo de saída:")
         self.output_prefix = QLineEdit()
-        self.output_prefix.setPlaceholderText("Assassins Creed Shadows Parte ")
+        self.output_prefix.setPlaceholderText("Prefixo do Arquivo")
         prefix_layout.addWidget(prefix_label)
         prefix_layout.addWidget(self.output_prefix)
         config_layout.addLayout(prefix_layout)
@@ -331,7 +337,7 @@ class VideoCutterApp(QMainWindow):
         index_label = QLabel("Índice inicial:")
         self.start_index = QSpinBox()
         self.start_index.setRange(1, 999)
-        self.start_index.setValue(101)
+        self.start_index.setValue(1)
         index_layout.addWidget(index_label)
         index_layout.addWidget(self.start_index)
         config_layout.addLayout(index_layout)
@@ -351,6 +357,49 @@ class VideoCutterApp(QMainWindow):
         duration_layout.addWidget(max_label)
         duration_layout.addWidget(self.max_duration)
         config_layout.addLayout(duration_layout)
+
+        # Grupo de configurações avançadas (Chroma Key)
+        advanced_group = QGroupBox("Configurações de Chroma Key")
+        advanced_layout = QVBoxLayout()
+
+        # Cor do Chroma Key
+        chroma_color_layout = QHBoxLayout()
+        chroma_color_label = QLabel("Cor do Chroma Key:")
+        self.chroma_color = QLineEdit("0x00d600")
+        self.chroma_color.setToolTip("Código hexadecimal da cor a ser removida (ex: 0x00d600 para verde)")
+        chroma_color_button = QPushButton("Escolher Cor")
+        chroma_color_button.clicked.connect(self.choose_chroma_color)
+        chroma_color_layout.addWidget(chroma_color_label)
+        chroma_color_layout.addWidget(self.chroma_color)
+        chroma_color_layout.addWidget(chroma_color_button)
+        advanced_layout.addLayout(chroma_color_layout)
+
+        # Similaridade
+        similarity_layout = QHBoxLayout()
+        similarity_label = QLabel("Similaridade:")
+        self.similarity = QDoubleSpinBox()
+        self.similarity.setRange(0.01, 1.0)
+        self.similarity.setSingleStep(0.01)
+        self.similarity.setValue(0.30)
+        self.similarity.setToolTip("Quanto maior o valor, mais tons da cor serão removidos (0.01-1.0)")
+        similarity_layout.addWidget(similarity_label)
+        similarity_layout.addWidget(self.similarity)
+        advanced_layout.addLayout(similarity_layout)
+
+        # Suavidade de borda
+        blend_layout = QHBoxLayout()
+        blend_label = QLabel("Suavidade de borda:")
+        self.blend = QDoubleSpinBox()
+        self.blend.setRange(0.0, 1.0)
+        self.blend.setSingleStep(0.05)
+        self.blend.setValue(0.35)  # Valor aumentado para melhorar a suavidade
+        self.blend.setToolTip("Quanto maior o valor, mais suaves serão as bordas (0.0-1.0)")
+        blend_layout.addWidget(blend_label)
+        blend_layout.addWidget(self.blend)
+        advanced_layout.addLayout(blend_layout)
+
+        advanced_group.setLayout(advanced_layout)
+        config_layout.addWidget(advanced_group)
 
         config_group.setLayout(config_layout)
         main_layout.addWidget(config_group)
@@ -399,6 +448,29 @@ class VideoCutterApp(QMainWindow):
         if dir_path:
             self.output_dir.setText(dir_path)
 
+    def choose_chroma_color(self):
+        """Abre um seletor de cor para o chroma key"""
+        # Converter o valor hexadecimal atual para QColor
+        current_hex = self.chroma_color.text().strip()
+        current_color = QColor()
+
+        # Verificar se o formato é 0xRRGGBB e converter para #RRGGBB
+        if current_hex.startswith("0x") and len(current_hex) == 8:
+            rgb_hex = current_hex[2:]
+            current_color.setNamedColor(f"#{rgb_hex}")
+        else:
+            # Cor padrão (verde)
+            current_color.setNamedColor("#00d600")
+
+        # Abrir o diálogo de seleção de cor
+        color = QColorDialog.getColor(current_color, self, "Selecionar Cor do Chroma Key")
+
+        # Se uma cor válida foi selecionada
+        if color.isValid():
+            # Converter para o formato 0xRRGGBB
+            hex_color = color.name().replace("#", "0x")
+            self.chroma_color.setText(hex_color)
+
     def log(self, message):
         """Adiciona uma mensagem à área de log"""
         self.log_area.append(message)
@@ -411,7 +483,14 @@ class VideoCutterApp(QMainWindow):
         input_file = self.input_path.text()
         image_file = self.image_path.text()
         selo_file = self.selo_path.text()
-        output_prefix = self.output_prefix.text() or "Assassins Creed Shadows Parte "
+
+        # Garantir que o prefixo termine com espaço
+        output_prefix = self.output_prefix.text()
+        if output_prefix and not output_prefix.endswith(" "):
+            output_prefix += " "
+        elif not output_prefix:
+            output_prefix = "Prefixo Parte "
+
         start_index = self.start_index.value()
         min_duration = self.min_duration.value()
         max_duration = self.max_duration.value()
@@ -464,10 +543,24 @@ class VideoCutterApp(QMainWindow):
         else:
             self.log(f"- Codificador: {encoder_name} (codificação por software)")
 
+        # Mostrar informações sobre os parâmetros de chroma key
+        self.log(f"- Chroma Key: Cor={self.chroma_color.text()}, Similaridade={self.similarity.value()}, Suavidade={self.blend.value()}")
+
+        # Obter os parâmetros de chroma key
+        chroma_color = self.chroma_color.text()
+        similarity = self.similarity.value()
+        blend = self.blend.value()
+
+        # Validar a cor do chroma key
+        if not re.match(r'^0x[0-9A-Fa-f]{6}$', chroma_color):
+            QMessageBox.warning(self, "Aviso", "Formato de cor inválido. Use o formato 0xRRGGBB (ex: 0x00d600).")
+            return
+
         # Criar e iniciar a thread de processamento
         self.worker = VideoCutterWorker(
             input_file, image_file, selo_file, output_prefix,
-            start_index, min_duration, max_duration, output_directory
+            start_index, min_duration, max_duration, output_directory,
+            chroma_color, similarity, blend
         )
 
         # Conectar os sinais
