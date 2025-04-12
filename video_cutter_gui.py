@@ -132,18 +132,36 @@ class VideoCutterWorker(QThread):
 
                 filter_complex_str = "".join(filter_complex)
 
+                # Verificar qual codificador usar (hardware ou software)
+                encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
+                self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
+
+                # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
-                    "ffmpeg", "-hwaccel", "cuda",
+                    "ffmpeg"
+                ]
+
+                # Adicionar acelerador de hardware apenas se estiver usando NVENC
+                if encoder_name == "h264_nvenc":
+                    ffmpeg_cmd.extend(["-hwaccel", "cuda"])
+
+                # Adicionar o resto dos parâmetros
+                ffmpeg_cmd.extend([
                     "-i", self.input_file,
                     "-i", self.image_file,
                     "-i", self.selo_file,
                     "-filter_complex", filter_complex_str,
-                    "-map", "[final_v]", "-map", "[final_a]",
-                    "-c:v", "h264_nvenc", "-preset", "p7", "-rc:v", "vbr", "-cq", "18",
-                    "-b:v", "15M", "-profile:v", "high", "-level:v", "4.2",
+                    "-map", "[final_v]", "-map", "[final_a]"
+                ])
+
+                # Adicionar parâmetros do codificador de vídeo
+                ffmpeg_cmd.extend(encoder_params)
+
+                # Adicionar parâmetros de áudio e finalização
+                ffmpeg_cmd.extend([
                     "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
                     output_file
-                ]
+                ])
 
                 # Executar o comando FFmpeg
                 try:
@@ -216,6 +234,16 @@ class VideoCutterApp(QMainWindow):
             QMessageBox.critical(self, "Erro", "FFmpeg não encontrado no sistema ou no pacote da aplicação.\n\n"
                                 "A aplicação não poderá funcionar corretamente.")
             print("FFmpeg não encontrado!")
+            return
+
+        # Verificar se o NVENC está disponível
+        has_nvenc = ffmpeg_utils.has_nvenc()
+        encoder_name, _ = ffmpeg_utils.get_video_encoder()
+
+        if has_nvenc:
+            print("NVENC detectado! Usando aceleração de hardware.")
+        else:
+            print(f"NVENC não detectado. Usando codificador de software: {encoder_name}")
 
     def initUI(self):
         # Configurar a janela principal
@@ -428,6 +456,13 @@ class VideoCutterApp(QMainWindow):
             self.log(f"- Pasta de saída: {output_directory}")
         else:
             self.log(f"- Pasta de saída: Mesma pasta do vídeo de entrada")
+
+        # Mostrar informações sobre o codificador
+        encoder_name, _ = ffmpeg_utils.get_video_encoder()
+        if encoder_name == "h264_nvenc":
+            self.log("- Codificador: NVIDIA NVENC (aceleração de hardware)")
+        else:
+            self.log(f"- Codificador: {encoder_name} (codificação por software)")
 
         # Criar e iniciar a thread de processamento
         self.worker = VideoCutterWorker(
