@@ -1,0 +1,12 @@
+Para adicionar um ícone personalizado ao executável:
+
+1. Crie um arquivo de ícone (.ico) com tamanho 256x256 pixels
+2. Salve-o como "app_icon.ico" neste diretório
+3. Execute o comando PyInstaller novamente com a opção --icon=app_icon.ico
+
+Você pode criar um ícone usando ferramentas online como:
+- https://www.icoconverter.com/
+- https://convertico.com/
+- https://www.favicon-generator.org/
+
+Ou usando software de edição de imagem como Photoshop, GIMP ou Paint.NET

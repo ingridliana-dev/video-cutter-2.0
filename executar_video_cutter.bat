@@ -1,0 +1,3 @@
+@echo off
+echo Iniciando Video Cutter...
+start "" "dist\Video Cutter.exe"
