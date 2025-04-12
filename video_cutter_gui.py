@@ -171,7 +171,39 @@ class VideoCutterWorker(QThread):
 
                 # Executar o comando FFmpeg
                 try:
+                    # Adicionar parâmetros para mostrar progresso
+                    ffmpeg_cmd.extend(["-progress", "pipe:1", "-nostats"])
+
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
+
+                    # Variáveis para acompanhar o progresso
+                    part_progress = 0
+                    part_weight = duration / total_duration * 100  # Peso desta parte no progresso total
+                    overall_progress = int((current_time - duration) / total_duration * 100)  # Progresso até esta parte
+
+                    # Ler a saída do FFmpeg em tempo real para atualizar o progresso
+                    while self.process.poll() is None and self.is_running:
+                        line = self.process.stdout.readline().strip()
+                        if line:
+                            # Procurar por informações de progresso
+                            if line.startswith("out_time_ms="):
+                                try:
+                                    # Extrair o tempo atual de processamento em milissegundos
+                                    time_ms = int(line.split("=")[1])
+                                    time_s = time_ms / 1000000.0  # Converter para segundos
+
+                                    # Calcular o progresso desta parte (0-100%)
+                                    part_progress = min(100, int((time_s / duration) * 100))
+
+                                    # Calcular o progresso geral
+                                    current_overall = overall_progress + (part_progress * part_weight / 100)
+
+                                    # Emitir o sinal de progresso
+                                    self.progress_signal.emit(int(current_overall))
+                                except (ValueError, IndexError):
+                                    pass
+
+                    # Ler o restante da saída
                     stdout, stderr = self.process.communicate()
 
                     if self.process.returncode != 0:
@@ -187,10 +219,6 @@ class VideoCutterWorker(QThread):
                 current_time += duration
                 part_number += 1
                 total_parts += 1
-
-                # Atualizar o progresso
-                progress = int((current_time / total_duration) * 100)
-                self.progress_signal.emit(progress)
 
                 # Verificar se o processo foi cancelado
                 if not self.is_running:
