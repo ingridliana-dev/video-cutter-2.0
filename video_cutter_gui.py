@@ -174,6 +174,9 @@ class VideoCutterWorker(QThread):
                     # Adicionar parâmetros para mostrar progresso
                     ffmpeg_cmd.extend(["-progress", "pipe:1", "-nostats"])
 
+                    # Adicionar parâmetro para mostrar o tempo no formato HH:MM:SS.MS
+                    ffmpeg_cmd.extend(["-loglevel", "info"])
+
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
 
                     # Variáveis para acompanhar o progresso
@@ -182,15 +185,49 @@ class VideoCutterWorker(QThread):
                     overall_progress = int((current_time - duration) / total_duration * 100)  # Progresso até esta parte
 
                     # Ler a saída do FFmpeg em tempo real para atualizar o progresso
-                    while self.process.poll() is None and self.is_running:
-                        line = self.process.stdout.readline().strip()
-                        if line:
-                            # Procurar por informações de progresso
-                            if line.startswith("out_time_ms="):
+                    import time
+                    import select
+                    import io
+                    import os
+
+                    # Configurar para leitura não bloqueante no Windows
+                    if os.name == 'nt':
+                        import msvcrt
+                        import threading
+
+                        # Função para ler a saída em uma thread separada
+                        def read_output():
+                            buffer = ""
+                            while self.process.poll() is None and self.is_running:
+                                # Ler a saída disponível
                                 try:
-                                    # Extrair o tempo atual de processamento em milissegundos
-                                    time_ms = int(line.split("=")[1])
-                                    time_s = time_ms / 1000000.0  # Converter para segundos
+                                    char = self.process.stdout.read(1)
+                                    if char:
+                                        if char == '\n':
+                                            # Processar a linha completa
+                                            process_line(buffer)
+                                            buffer = ""
+                                        else:
+                                            buffer += char
+                                    else:
+                                        # Sem mais dados disponíveis, aguardar um pouco
+                                        time.sleep(0.1)
+                                except (IOError, ValueError):
+                                    # Erro de leitura, aguardar um pouco
+                                    time.sleep(0.1)
+
+                            # Processar qualquer buffer restante
+                            if buffer:
+                                process_line(buffer)
+
+                        # Função para processar uma linha
+                        def process_line(line):
+                            if line.startswith("out_time="):
+                                try:
+                                    # Extrair o tempo atual de processamento (formato HH:MM:SS.MS)
+                                    time_str = line.split("=")[1]
+                                    h, m, s = time_str.split(":")
+                                    time_s = float(h) * 3600 + float(m) * 60 + float(s)
 
                                     # Calcular o progresso desta parte (0-100%)
                                     part_progress = min(100, int((time_s / duration) * 100))
@@ -202,6 +239,46 @@ class VideoCutterWorker(QThread):
                                     self.progress_signal.emit(int(current_overall))
                                 except (ValueError, IndexError):
                                     pass
+
+                        # Iniciar thread de leitura
+                        read_thread = threading.Thread(target=read_output)
+                        read_thread.daemon = True
+                        read_thread.start()
+
+                        # Aguardar a conclusão do processo
+                        while self.process.poll() is None and self.is_running:
+                            time.sleep(0.1)
+
+                        # Aguardar a thread terminar
+                        read_thread.join(1.0)
+                    else:
+                        # Para sistemas Unix (Linux/Mac)
+                        while self.process.poll() is None and self.is_running:
+                            # Verificar se há dados disponíveis para leitura
+                            if select.select([self.process.stdout], [], [], 0.1)[0]:
+                                line = self.process.stdout.readline().strip()
+                                if line:
+                                    # Procurar por informações de progresso
+                                    if line.startswith("out_time="):
+                                        try:
+                                            # Extrair o tempo atual de processamento (formato HH:MM:SS.MS)
+                                            time_str = line.split("=")[1]
+                                            h, m, s = time_str.split(":")
+                                            time_s = float(h) * 3600 + float(m) * 60 + float(s)
+
+                                            # Calcular o progresso desta parte (0-100%)
+                                            part_progress = min(100, int((time_s / duration) * 100))
+
+                                            # Calcular o progresso geral
+                                            current_overall = overall_progress + (part_progress * part_weight / 100)
+
+                                            # Emitir o sinal de progresso
+                                            self.progress_signal.emit(int(current_overall))
+                                        except (ValueError, IndexError):
+                                            pass
+                            else:
+                                # Sem dados disponíveis, aguardar um pouco
+                                time.sleep(0.1)
 
                     # Ler o restante da saída
                     stdout, stderr = self.process.communicate()
