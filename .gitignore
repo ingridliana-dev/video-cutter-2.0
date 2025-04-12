@@ -26,6 +26,12 @@ build/
 *.jpg
 *.jpeg
 
+# Arquivos grandes
+ffmpeg.zip
+
+# Opcional: descomentar se não quiser incluir a pasta ffmpeg no repositório
+# ffmpeg/
+
 # Logs
 *.log
 
