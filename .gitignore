@@ -1,0 +1,34 @@
+# Ambiente virtual
+venv/
+
+# Arquivos Python compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de distribuição
+dist/
+build/
+*.egg-info/
+
+# Arquivos de ambiente
+.env
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Arquivos de mídia (para não sobrecarregar o repositório)
+*.mp4
+*.avi
+*.mkv
+*.png
+*.jpg
+*.jpeg
+
+# Logs
+*.log
+
+# Arquivos específicos do sistema
+.DS_Store
+Thumbs.db
