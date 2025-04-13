@@ -224,6 +224,10 @@ class VideoCutterWorker(QThread):
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 if encoder_name == "h264_nvenc":
                     self.log_signal.emit("Usando aceleração de hardware NVIDIA para codificação de vídeo")
+                elif encoder_name == "h264_amf":
+                    self.log_signal.emit("Usando aceleração de hardware AMD para codificação de vídeo")
+                elif encoder_name == "h264_qsv":
+                    self.log_signal.emit("Usando aceleração de hardware Intel QuickSync para codificação de vídeo")
                 else:
                     self.log_signal.emit(f"Usando codificador de vídeo por software: {encoder_name}")
                 # Inicializar a área de status com uma mensagem vazia
@@ -235,9 +239,13 @@ class VideoCutterWorker(QThread):
                     "ffmpeg"
                 ]
 
-                # Adicionar acelerador de hardware apenas se estiver usando NVENC
+                # Adicionar acelerador de hardware apropriado com base no codificador
                 if encoder_name == "h264_nvenc":
                     ffmpeg_cmd.extend(["-hwaccel", "cuda"])
+                elif encoder_name == "h264_amf":
+                    ffmpeg_cmd.extend(["-hwaccel", "d3d11va"])
+                elif encoder_name == "h264_qsv":
+                    ffmpeg_cmd.extend(["-hwaccel", "qsv"])
 
                 # Adicionar o resto dos parâmetros
                 ffmpeg_cmd.extend([
@@ -604,14 +612,20 @@ class VideoCutterApp(QMainWindow):
             print("FFmpeg não encontrado!")
             return
 
-        # Verificar se o NVENC está disponível
+        # Verificar quais aceleradores de hardware estão disponíveis
         has_nvenc = ffmpeg_utils.has_nvenc()
+        has_amf = ffmpeg_utils.has_amf()
+        has_qsv = ffmpeg_utils.has_qsv()
         encoder_name, _ = ffmpeg_utils.get_video_encoder()
 
         if has_nvenc:
-            print("NVENC detectado! Usando aceleração de hardware.")
+            print("NVENC detectado! Usando aceleração de hardware NVIDIA.")
+        elif has_amf:
+            print("AMF detectado! Usando aceleração de hardware AMD.")
+        elif has_qsv:
+            print("QuickSync detectado! Usando aceleração de hardware Intel.")
         else:
-            print(f"NVENC não detectado. Usando codificador de software: {encoder_name}")
+            print(f"Nenhum acelerador de hardware detectado. Usando codificador de software: {encoder_name}")
 
     def initUI(self):
         # Configurar a janela principal
@@ -1067,6 +1081,10 @@ class VideoCutterApp(QMainWindow):
         encoder_name, _ = ffmpeg_utils.get_video_encoder()
         if encoder_name == "h264_nvenc":
             self.log("- Codificador: NVIDIA NVENC (aceleração de hardware)")
+        elif encoder_name == "h264_amf":
+            self.log("- Codificador: AMD AMF (aceleração de hardware)")
+        elif encoder_name == "h264_qsv":
+            self.log("- Codificador: Intel QuickSync (aceleração de hardware)")
         else:
             self.log(f"- Codificador: {encoder_name} (codificação por software)")
 

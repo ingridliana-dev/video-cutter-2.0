@@ -56,7 +56,7 @@ def check_ffmpeg():
     return ffmpeg_path is not None and ffprobe_path is not None
 
 def has_nvenc():
-    """Verifica se o sistema tem suporte a NVENC"""
+    """Verifica se o sistema tem suporte a NVENC (NVIDIA)"""
     ffmpeg_path = get_ffmpeg_path()
     if not ffmpeg_path:
         return False
@@ -96,12 +96,84 @@ def has_nvenc():
         print(f"Erro ao verificar NVENC: {str(e)}")
         return False
 
+def has_amf():
+    """Verifica se o sistema tem suporte a AMF (AMD)"""
+    ffmpeg_path = get_ffmpeg_path()
+    if not ffmpeg_path:
+        return False
+
+    try:
+        # Configurar startupinfo para esconder a janela do console
+        startupinfo = None
+        if os.name == 'nt':  # Windows
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        # Teste: tenta codificar um frame usando AMF
+        test_cmd = [
+            ffmpeg_path,
+            "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1",
+            "-c:v", "h264_amf", "-f", "null", "-"
+        ]
+        result = subprocess.run(test_cmd, capture_output=True, text=True, startupinfo=startupinfo)
+
+        # Se o comando for bem-sucedido, AMF está disponível
+        if result.returncode == 0:
+            return True
+
+        # Verificar se h264_amf está listado nos codificadores
+        encoders_result = subprocess.run([ffmpeg_path, "-encoders"], capture_output=True, text=True, startupinfo=startupinfo)
+        encoders_output = encoders_result.stdout + encoders_result.stderr
+
+        return "h264_amf" in encoders_output
+    except Exception as e:
+        print(f"Erro ao verificar AMF: {str(e)}")
+        return False
+
+def has_qsv():
+    """Verifica se o sistema tem suporte a QuickSync (Intel)"""
+    ffmpeg_path = get_ffmpeg_path()
+    if not ffmpeg_path:
+        return False
+
+    try:
+        # Configurar startupinfo para esconder a janela do console
+        startupinfo = None
+        if os.name == 'nt':  # Windows
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        # Teste: tenta codificar um frame usando QSV
+        test_cmd = [
+            ffmpeg_path,
+            "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1",
+            "-c:v", "h264_qsv", "-f", "null", "-"
+        ]
+        result = subprocess.run(test_cmd, capture_output=True, text=True, startupinfo=startupinfo)
+
+        # Se o comando for bem-sucedido, QSV está disponível
+        if result.returncode == 0:
+            return True
+
+        # Verificar se h264_qsv está listado nos codificadores
+        encoders_result = subprocess.run([ffmpeg_path, "-encoders"], capture_output=True, text=True, startupinfo=startupinfo)
+        encoders_output = encoders_result.stdout + encoders_result.stderr
+
+        return "h264_qsv" in encoders_output
+    except Exception as e:
+        print(f"Erro ao verificar QSV: {str(e)}")
+        return False
+
 def get_video_encoder():
     """Retorna o melhor codificador de vídeo disponível"""
-    # Verificar se o NVENC está realmente disponível
-    nvenc_available = has_nvenc()
+    # Verificar quais aceleradores de hardware estão disponíveis
+    nvenc_available = has_nvenc()  # NVIDIA
+    amf_available = has_amf()      # AMD
+    qsv_available = has_qsv()      # Intel
 
-    # Verificar se o libx264 está disponível
+    # Verificar se o libx264 está disponível (codificador por software)
     ffmpeg_path = get_ffmpeg_path()
     libx264_available = False
 
@@ -125,11 +197,18 @@ def get_video_encoder():
         except Exception:
             libx264_available = False
 
-    # Prioridade: NVENC > libx264 > cópia
+    # Prioridade: NVENC > AMF > QSV > libx264 > cópia
     if nvenc_available:
-        print("Usando codificador NVENC (hardware)")
+        print("Usando codificador NVIDIA NVENC (hardware)")
         return "h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p7", "-rc:v", "vbr", "-cq", "18",
                 "-b:v", "15M", "-profile:v", "high", "-level:v", "4.2"]
+    elif amf_available:
+        print("Usando codificador AMD AMF (hardware)")
+        return "h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak", "-qp_i", "18", "-qp_p", "20",
+                "-b:v", "15M", "-profile:v", "high"]
+    elif qsv_available:
+        print("Usando codificador Intel QuickSync (hardware)")
+        return "h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-b:v", "15M", "-profile:v", "high"]
     elif libx264_available:
         print("Usando codificador libx264 (software)")
         return "libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", "23",
