@@ -144,7 +144,10 @@ class VideoCutterWorker(QThread):
 
                 # Verificar qual codificador usar (hardware ou software)
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
-                self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
+                if encoder_name == "h264_nvenc":
+                    self.log_signal.emit("Usando aceleração de hardware NVIDIA para codificação de vídeo")
+                else:
+                    self.log_signal.emit(f"Usando codificador de vídeo por software: {encoder_name}")
                 # Inicializar a área de status com uma mensagem vazia
                 # A área será preenchida com informações reais de codificação quando o processo começar
                 self.status_signal.emit("")
@@ -248,15 +251,15 @@ class VideoCutterWorker(QThread):
                                         # Forçar a atualização da interface para garantir que as informações sejam exibidas em tempo real
                                         QApplication.processEvents()
 
-                                        # Exibir a linha de progresso no log (a cada 10 frames para não sobrecarregar)
-                                        if frame_counter % 10 == 0:
-                                            self.log_signal.emit(line)
-                                            # Forçar a atualização da interface
-                                            QApplication.processEvents()
-                                    # Mostrar informações do encoder e outras mensagens no log, mas não na área de status
+                                        # Não exibir as linhas de progresso no log, apenas no status
+                                        # Isso mantém o log limpo com apenas informações importantes para o usuário
+                                        # Forçar a atualização da interface
+                                        QApplication.processEvents()
+                                    # Filtrar mensagens técnicas e de sincronização para não sobrecarregar o log
                                     elif "encoder" in line or "Stream mapping" in line or "Press" in line or "Parsed_overlay" in line or "framesync" in line or "Sync level" in line:
-                                        # Apenas adicionar ao log
-                                        self.log_signal.emit(line)
+                                        # Apenas imprimir para debug, não adicionar ao log do usuário
+                                        print(f"[{time.strftime('%H:%M:%S')}] INFO TÉCNICA: {line}")
+
                                         # Forçar a atualização da interface
                                         QApplication.processEvents()
 
@@ -332,9 +335,9 @@ class VideoCutterWorker(QThread):
 
                     # Verificar o resultado
                     if self.process.returncode != 0:
-                        self.log_signal.emit(f"Erro ao processar parte {part_number}: {stdout.decode('utf-8', errors='ignore')}")
+                        self.log_signal.emit(f"Erro ao processar parte {part_number}. Verifique o vídeo de entrada e tente novamente.")
                     else:
-                        self.log_signal.emit(f"Parte {part_number} concluída com sucesso!")
+                        self.log_signal.emit(f"Parte {part_number} processada e salva com sucesso!")
                 except Exception as e:
                     self.log_signal.emit(f"Erro ao executar FFmpeg: {str(e)}")
                     if not self.is_running:
@@ -355,7 +358,7 @@ class VideoCutterWorker(QThread):
                     break
 
             if self.is_running:
-                self.log_signal.emit(f"Processo concluído! {total_parts} partes geradas.")
+                self.log_signal.emit(f"Processamento concluído com sucesso! {total_parts} vídeos foram gerados.")
                 self.progress_signal.emit(100)
                 self.finished_signal.emit()
 
@@ -707,20 +710,22 @@ class VideoCutterApp(QMainWindow):
         self.start_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
 
-        # Mostrar os parâmetros configurados
-        self.log("Iniciando processo de corte de vídeo...")
-        self.log("Parâmetros configurados:")
-        self.log(f"- Vídeo de entrada: {input_file}")
-        self.log(f"- Imagem de capa: {image_file}")
-        self.log(f"- Vídeo do selo: {selo_file}")
-        self.log(f"- Prefixo de saída: {output_prefix}")
-        self.log(f"- Índice inicial: {start_index}")
-        self.log(f"- Duração mínima: {min_duration} segundos")
-        self.log(f"- Duração máxima: {max_duration} segundos")
+        # Mostrar mensagens claras e informativas para o usuário
+        self.log("Iniciando processamento de vídeo...")
+        self.log(f"Arquivo de entrada: {os.path.basename(input_file)}")
+
+        # Informar onde os arquivos serão salvos
         if output_directory:
-            self.log(f"- Pasta de saída: {output_directory}")
+            output_path = output_directory
         else:
-            self.log(f"- Pasta de saída: Mesma pasta do vídeo de entrada")
+            output_path = os.path.dirname(input_file)
+        self.log(f"Os vídeos processados serão salvos em: {output_path}")
+
+        # Informar o formato de saída
+        self.log(f"Formato de saída: {output_prefix}1.mp4, {output_prefix}2.mp4, etc.")
+
+        # Informar a duração dos vídeos
+        self.log(f"Duração dos vídeos: entre {min_duration} e {max_duration} segundos")
 
         # Mostrar informações sobre o codificador
         encoder_name, _ = ffmpeg_utils.get_video_encoder()
