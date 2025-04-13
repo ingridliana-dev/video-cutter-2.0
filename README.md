@@ -6,10 +6,13 @@ Uma interface gráfica para cortar vídeos longos em segmentos menores, adiciona
 
 - Corta um vídeo longo em segmentos menores com duração aleatória
 - Adiciona uma imagem de capa no primeiro frame de cada segmento
-- Adiciona um selo/marca d'água em cada segmento
+- Adiciona um selo/marca d'água em cada segmento com efeito de chroma key personalizável
 - Adiciona texto "Parte X" em cada segmento
+- Suporte a vídeos de qualquer resolução (horizontal, vertical ou quadrado)
+- Redimensionamento automático da imagem de capa e vídeo do selo quando necessário
 - Interface gráfica amigável para configurar todos os parâmetros
 - Barra de progresso e log detalhado durante o processamento
+- Botão para abrir diretamente a pasta onde os vídeos processados são salvos
 
 ## Requisitos
 
@@ -37,9 +40,19 @@ Para desenvolvimento:
    - Selecione o vídeo do selo
    - Configure o prefixo de saída, índice inicial e durações
    - Opcionalmente, selecione uma pasta de saída diferente
-5. Clique em "Iniciar Corte" para começar o processamento
+5. Configure as opções de Chroma Key para o selo (cor, similaridade e suavidade)
+6. Clique em "Iniciar Corte" para começar o processamento
+7. Use o botão "Abrir Pasta" para acessar diretamente a pasta onde os vídeos processados foram salvos
 
 **Importante**: Não remova a pasta `ffmpeg` que está junto com o executável, pois ela contém os componentes necessários para o funcionamento do programa.
+
+### Configurações de Chroma Key
+
+O aplicativo permite personalizar o efeito de chroma key aplicado ao vídeo do selo:
+
+- **Cor do Chroma Key**: A cor que será tornada transparente (padrão: verde - 0x00d600)
+- **Similaridade**: Quanto maior o valor, mais tons da cor serão removidos (0.01-1.0)
+- **Suavidade de borda**: Quanto maior o valor, mais suaves serão as bordas (0.0-1.0)
 
 ### Versão de Desenvolvimento
 
@@ -51,9 +64,11 @@ Para desenvolvimento:
 
 ## Arquivos de Entrada
 
-- **Vídeo de entrada**: O vídeo longo que será cortado em segmentos
-- **Imagem de capa**: Uma imagem para ser exibida no primeiro frame de cada segmento
-- **Vídeo do selo**: Um vídeo curto para ser usado como marca d'água/selo
+- **Vídeo de entrada**: O vídeo longo que será cortado em segmentos (qualquer resolução)
+- **Imagem de capa**: Uma imagem para ser exibida no primeiro frame de cada segmento (será redimensionada automaticamente se necessário)
+- **Vídeo do selo**: Um vídeo curto para ser usado como marca d'água/selo (será redimensionado automaticamente se necessário)
+
+O aplicativo detecta automaticamente a resolução de todos os arquivos e realiza os ajustes necessários para garantir a compatibilidade.
 
 ## Arquivos de Saída
 

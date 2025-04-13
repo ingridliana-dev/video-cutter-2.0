@@ -91,7 +91,7 @@ class VideoCutterWorker(QThread):
                     return
 
             # Obter a duração total do vídeo principal
-            self.log_signal.emit("Obtendo duração do vídeo principal...")
+            self.log_signal.emit("Obtendo informações do vídeo principal...")
             total_duration = self.get_video_duration(self.input_file)
             if total_duration <= 0:
                 self.error_signal.emit("Não foi possível obter a duração do vídeo principal ou a duração é inválida.")
@@ -101,12 +101,42 @@ class VideoCutterWorker(QThread):
             print(f"[{time.strftime('%H:%M:%S')}] DEFININDO TOTAL_DURATION: {total_duration}")
             self.log_signal.emit(f"Duração total do vídeo: {total_duration:.2f} segundos")
 
-            # Obter a duração do vídeo do selo
+            # Obter a resolução do vídeo principal
+            input_width, input_height = self.get_video_resolution(self.input_file)
+            self.log_signal.emit(f"Resolução do vídeo principal: {input_width}x{input_height}")
+
+            # Obter a resolução da imagem de capa
+            cover_width, cover_height = self.get_image_resolution(self.image_file)
+            self.log_signal.emit(f"Resolução da imagem de capa: {cover_width}x{cover_height}")
+
+            # Obter a duração e resolução do vídeo do selo
             selo_duration = self.get_video_duration(self.selo_file)
             if selo_duration <= 0:
                 self.error_signal.emit("Não foi possível obter a duração do vídeo do selo ou a duração é inválida.")
                 return
             self.log_signal.emit(f"Duração do vídeo do selo: {selo_duration:.2f} segundos")
+
+            selo_width, selo_height = self.get_video_resolution(self.selo_file)
+            self.log_signal.emit(f"Resolução do vídeo do selo: {selo_width}x{selo_height}")
+
+            # Verificar compatibilidade de resolução e determinar quais arquivos precisam ser redimensionados
+            resolution_info = self.check_resolution_compatibility(
+                (input_width, input_height),
+                (cover_width, cover_height),
+                (selo_width, selo_height)
+            )
+
+            # Informar ao usuário sobre a orientação do vídeo
+            if resolution_info['is_vertical']:
+                self.log_signal.emit("Orientação do vídeo: Vertical (retrato)")
+            else:
+                self.log_signal.emit("Orientação do vídeo: Horizontal (paisagem)")
+
+            # Informar sobre redimensionamentos necessários
+            if resolution_info['cover_needs_resize']:
+                self.log_signal.emit("A imagem de capa será redimensionada para corresponder à resolução do vídeo.")
+            if resolution_info['selo_needs_resize']:
+                self.log_signal.emit("O vídeo do selo será redimensionado para corresponder à resolução do vídeo.")
 
             # Inicializar o tempo atual e o número da parte
             current_time = 0
@@ -151,17 +181,42 @@ class VideoCutterWorker(QThread):
 
                 self.log_signal.emit(f"Processando parte {part_number} (tempo: {current_time:.2f}s, duração: {duration:.2f}s)...")
 
-                # Construir o comando FFmpeg
+                # Construir o comando FFmpeg com base nas informações de resolução
                 filter_complex = [
-                    f"[0:v]trim=start={current_time}:duration={duration},setpts=PTS-STARTPTS[segment];",
-                    f"[2:v]format=rgba,setpts=PTS-STARTPTS[selo_rgba];",
-                    f"[selo_rgba]colorkey=color={self.chroma_color}:similarity={self.similarity}:blend={self.blend}[selo_chroma];",
-                    f"[selo_chroma]tpad=start_duration=10:color=black@0.0[selo_padded];",
-                    f"[segment][selo_padded]overlay=(W-w)/2:(H-h)/2:eof_action=pass[main_with_selo];",
-                    f"[main_with_selo][1:v]overlay=(W-w)/2:(H-h)/2:enable='eq(n,0)'[with_image];",
-                    f"[with_image]drawtext=text='Parte {part_number}':fontfile='C\:/Windows/Fonts/arial.ttf':fontsize=150:fontcolor=white:borderw=20:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2:enable='eq(n,0)'[final_v];",
-                    f"[0:a]atrim=start={current_time}:duration={duration},asetpts=PTS-STARTPTS[final_a]"
+                    f"[0:v]trim=start={current_time}:duration={duration},setpts=PTS-STARTPTS[segment];"
                 ]
+
+                # Adicionar redimensionamento para o selo se necessário
+                if resolution_info['selo_needs_resize']:
+                    filter_complex.append(f"[2:v]format=rgba,{resolution_info['resize_filters']['selo']},setpts=PTS-STARTPTS[selo_rgba];")
+                else:
+                    filter_complex.append(f"[2:v]format=rgba,setpts=PTS-STARTPTS[selo_rgba];")
+
+                # Aplicar chroma key ao selo
+                filter_complex.append(f"[selo_rgba]colorkey=color={self.chroma_color}:similarity={self.similarity}:blend={self.blend}[selo_chroma];")
+                filter_complex.append(f"[selo_chroma]tpad=start_duration=10:color=black@0.0[selo_padded];")
+
+                # Sobrepor o selo ao segmento de vídeo
+                filter_complex.append(f"[segment][selo_padded]overlay=(W-w)/2:(H-h)/2:eof_action=pass[main_with_selo];")
+
+                # Adicionar redimensionamento para a imagem de capa se necessário
+                if resolution_info['cover_needs_resize']:
+                    # Primeiro redimensionar a imagem de capa
+                    filter_complex.append(f"[1:v]{resolution_info['resize_filters']['cover']}[cover_resized];")
+                    # Depois sobrepor a imagem redimensionada
+                    filter_complex.append(f"[main_with_selo][cover_resized]overlay=(W-w)/2:(H-h)/2:enable='eq(n,0)'[with_image];")
+                else:
+                    # Usar a imagem original se não precisar de redimensionamento
+                    filter_complex.append(f"[main_with_selo][1:v]overlay=(W-w)/2:(H-h)/2:enable='eq(n,0)'[with_image];")
+
+                # Ajustar o tamanho da fonte com base na resolução do vídeo
+                input_width, input_height = resolution_info['input_resolution']
+                # Calcular um tamanho de fonte proporcional à resolução
+                # Para 1080x1920, usamos fonte 150. Para outras resoluções, ajustamos proporcionalmente
+                font_size = int(min(input_width, input_height) * 0.14)  # 150 / 1080 ≈ 0.14
+
+                filter_complex.append(f"[with_image]drawtext=text='Parte {part_number}':fontfile='C\:/Windows/Fonts/arial.ttf':fontsize={font_size}:fontcolor=white:borderw={font_size//7}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2:enable='eq(n,0)'[final_v];")
+                filter_complex.append(f"[0:a]atrim=start={current_time}:duration={duration},asetpts=PTS-STARTPTS[final_a]")
 
                 filter_complex_str = "".join(filter_complex)
 
@@ -458,6 +513,72 @@ class VideoCutterWorker(QThread):
         except Exception as e:
             self.log_signal.emit(f"Erro ao obter duração do vídeo: {str(e)}")
             return -1
+
+    def get_video_resolution(self, video_file):
+        """Obtém a resolução de um arquivo de vídeo usando FFmpeg"""
+        try:
+            cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", video_file]
+            result = ffmpeg_utils.run_ffprobe_command(cmd)
+            if result.returncode == 0 and result.stdout.strip():
+                # O formato da saída é "width x height", por exemplo "1920x1080"
+                dimensions = result.stdout.strip().split('x')
+                if len(dimensions) == 2:
+                    width = int(dimensions[0])
+                    height = int(dimensions[1])
+                    return width, height
+            self.log_signal.emit(f"Aviso: Não foi possível obter a resolução do vídeo {os.path.basename(video_file)}. Usando resolução padrão.")
+            return 1080, 1920  # Resolução padrão (vertical)
+        except Exception as e:
+            self.log_signal.emit(f"Erro ao obter resolução do vídeo: {str(e)}")
+            return 1080, 1920  # Resolução padrão em caso de erro
+
+    def get_image_resolution(self, image_file):
+        """Obtém a resolução de uma imagem usando FFmpeg"""
+        try:
+            cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", image_file]
+            result = ffmpeg_utils.run_ffprobe_command(cmd)
+            if result.returncode == 0 and result.stdout.strip():
+                dimensions = result.stdout.strip().split('x')
+                if len(dimensions) == 2:
+                    width = int(dimensions[0])
+                    height = int(dimensions[1])
+                    return width, height
+            self.log_signal.emit(f"Aviso: Não foi possível obter a resolução da imagem {os.path.basename(image_file)}. Usando resolução padrão.")
+            return 1080, 1920  # Resolução padrão (vertical)
+        except Exception as e:
+            self.log_signal.emit(f"Erro ao obter resolução da imagem: {str(e)}")
+            return 1080, 1920  # Resolução padrão em caso de erro
+
+    def check_resolution_compatibility(self, input_res, cover_res, selo_res):
+        """Verifica a compatibilidade entre as resoluções e determina quais arquivos precisam ser redimensionados"""
+        input_width, input_height = input_res
+        cover_width, cover_height = cover_res
+        selo_width, selo_height = selo_res
+
+        # Calcular a proporção (aspect ratio) do vídeo de entrada
+        input_aspect_ratio = input_width / input_height
+
+        # Inicializar o dicionário de resultado
+        result = {
+            'input_resolution': input_res,
+            'cover_needs_resize': False,
+            'selo_needs_resize': False,
+            'aspect_ratio': input_aspect_ratio,
+            'is_vertical': input_height > input_width,
+            'resize_filters': {}
+        }
+
+        # Verificar se a imagem de capa precisa ser redimensionada
+        if cover_width != input_width or cover_height != input_height:
+            result['cover_needs_resize'] = True
+            result['resize_filters']['cover'] = f"scale={input_width}:{input_height}"
+
+        # Verificar se o vídeo do selo precisa ser redimensionado
+        if selo_width != input_width or selo_height != input_height:
+            result['selo_needs_resize'] = True
+            result['resize_filters']['selo'] = f"scale={input_width}:{input_height}"
+
+        return result
 
     def stop(self):
         """Para o processamento"""
