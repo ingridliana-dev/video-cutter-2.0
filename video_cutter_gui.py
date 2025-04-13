@@ -600,7 +600,16 @@ class VideoCutterApp(QMainWindow):
 
         # Grupo de configurações avançadas (Chroma Key)
         advanced_group = QGroupBox("Configurações de Chroma Key")
-        advanced_layout = QVBoxLayout()
+        advanced_layout = QVBoxLayout(advanced_group)  # Definir o layout diretamente no grupo
+
+        # Informações sobre o Chroma Key
+        info_label = QLabel("Configure os parâmetros do Chroma Key para o vídeo do selo:")
+        info_label.setWordWrap(True)  # Permitir quebra de linha
+        info_label.setStyleSheet("margin-bottom: 10px; font-weight: bold;")  # Adicionar espaçamento e negrito
+        advanced_layout.addWidget(info_label)
+
+        # Adicionar um espaçador para melhorar a aparência
+        advanced_layout.addSpacing(5)
 
         # Cor do Chroma Key
         chroma_color_layout = QHBoxLayout()
@@ -614,6 +623,9 @@ class VideoCutterApp(QMainWindow):
         chroma_color_layout.addWidget(chroma_color_button)
         advanced_layout.addLayout(chroma_color_layout)
 
+        # Adicionar um pequeno espaçamento entre os controles
+        advanced_layout.addSpacing(5)
+
         # Similaridade
         similarity_layout = QHBoxLayout()
         similarity_label = QLabel("Similaridade:")
@@ -625,6 +637,9 @@ class VideoCutterApp(QMainWindow):
         similarity_layout.addWidget(similarity_label)
         similarity_layout.addWidget(self.similarity)
         advanced_layout.addLayout(similarity_layout)
+
+        # Adicionar um pequeno espaçamento entre os controles
+        advanced_layout.addSpacing(5)
 
         # Suavidade de borda
         blend_layout = QHBoxLayout()
@@ -638,7 +653,7 @@ class VideoCutterApp(QMainWindow):
         blend_layout.addWidget(self.blend)
         advanced_layout.addLayout(blend_layout)
 
-        advanced_group.setLayout(advanced_layout)
+        # O layout já foi definido no construtor
         config_layout.addWidget(advanced_group)
 
         config_group.setLayout(config_layout)
