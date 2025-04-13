@@ -18,7 +18,8 @@ try:
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QPushButton,
                                 QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
                                 QLineEdit, QSpinBox, QProgressBar, QTextEdit, QGroupBox,
-                                QMessageBox, QColorDialog, QDoubleSpinBox)
+                                QMessageBox, QColorDialog, QDoubleSpinBox, QFrame, QGridLayout,
+                                QFormLayout)
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QProcess
     from PyQt5.QtGui import QColor
     print("PyQt5 importado com sucesso!")
@@ -563,6 +564,9 @@ class VideoCutterApp(QMainWindow):
         config_group = QGroupBox("Configurações")
         config_layout = QVBoxLayout()
 
+        # Definir tamanho mínimo para o grupo de configurações
+        config_group.setMinimumWidth(500)  # Largura mínima para o grupo
+
         # Output prefix
         prefix_layout = QHBoxLayout()
         prefix_label = QLabel("Prefixo de saída:")
@@ -598,60 +602,64 @@ class VideoCutterApp(QMainWindow):
         duration_layout.addWidget(self.max_duration)
         config_layout.addLayout(duration_layout)
 
-        # Adicionar um separador visual
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        config_layout.addWidget(separator)
+        config_group.setLayout(config_layout)
+        main_layout.addWidget(config_group)
 
-        # Adicionar um separador para as configurações de Chroma Key
-        chroma_key_label = QLabel("Configurações de Chroma Key")
-        chroma_key_label.setStyleSheet("font-weight: bold; margin-top: 10px; margin-bottom: 5px;")
-        config_layout.addWidget(chroma_key_label)
+        # Grupo de configurações de Chroma Key (separado do grupo de configurações principal)
+        chroma_group = QGroupBox("Configurações de Chroma Key")
+        chroma_layout = QGridLayout()
 
-        # Cor do Chroma Key
-        chroma_color_layout = QHBoxLayout()
+        # Definir larguras mínimas para as colunas
+        chroma_layout.setColumnMinimumWidth(0, 150)  # Coluna dos rótulos
+        chroma_layout.setColumnMinimumWidth(1, 200)  # Coluna dos campos
+
+        # Definir o espaçamento entre os elementos
+        chroma_layout.setHorizontalSpacing(10)  # Espaçamento horizontal
+        chroma_layout.setVerticalSpacing(10)     # Espaçamento vertical
+
+        # Cor do Chroma Key (linha 0)
         chroma_color_label = QLabel("Cor do Chroma Key:")
         self.chroma_color = QLineEdit("0x00d600")
+        self.chroma_color.setFixedWidth(200)  # Largura fixa para o campo de texto
         self.chroma_color.setToolTip("Código hexadecimal da cor a ser removida (ex: 0x00d600 para verde)")
         chroma_color_button = QPushButton("Escolher Cor")
+        chroma_color_button.setFixedWidth(100)  # Largura fixa para o botão
         chroma_color_button.clicked.connect(self.choose_chroma_color)
-        chroma_color_layout.addWidget(chroma_color_label)
-        chroma_color_layout.addWidget(self.chroma_color)
-        chroma_color_layout.addWidget(chroma_color_button)
-        config_layout.addLayout(chroma_color_layout)
 
-        # Similaridade e Suavidade em um único layout horizontal
-        similarity_blend_layout = QHBoxLayout()
+        # Adicionar ao grid layout (linha 0)
+        chroma_layout.addWidget(chroma_color_label, 0, 0)
+        chroma_layout.addWidget(self.chroma_color, 0, 1)
+        chroma_layout.addWidget(chroma_color_button, 0, 2)
 
-        # Similaridade
+        # Similaridade (linha 1)
         similarity_label = QLabel("Similaridade:")
         self.similarity = QDoubleSpinBox()
+        self.similarity.setFixedWidth(200)  # Largura fixa para o campo
         self.similarity.setRange(0.01, 1.0)
         self.similarity.setSingleStep(0.01)
         self.similarity.setValue(0.30)
         self.similarity.setToolTip("Quanto maior o valor, mais tons da cor serão removidos (0.01-1.0)")
-        similarity_blend_layout.addWidget(similarity_label)
-        similarity_blend_layout.addWidget(self.similarity)
 
-        # Espaçador entre os controles
-        similarity_blend_layout.addSpacing(20)
+        # Adicionar ao grid layout (linha 1)
+        chroma_layout.addWidget(similarity_label, 1, 0)
+        chroma_layout.addWidget(self.similarity, 1, 1)
 
-        # Suavidade de borda
+        # Suavidade de borda (linha 2)
         blend_label = QLabel("Suavidade de borda:")
         self.blend = QDoubleSpinBox()
+        self.blend.setFixedWidth(200)  # Largura fixa para o campo
         self.blend.setRange(0.0, 1.0)
         self.blend.setSingleStep(0.05)
         self.blend.setValue(0.35)  # Valor aumentado para melhorar a suavidade
         self.blend.setToolTip("Quanto maior o valor, mais suaves serão as bordas (0.0-1.0)")
-        similarity_blend_layout.addWidget(blend_label)
-        similarity_blend_layout.addWidget(self.blend)
 
-        # Adicionar o layout combinado ao layout principal
-        config_layout.addLayout(similarity_blend_layout)
+        # Adicionar ao grid layout (linha 2)
+        chroma_layout.addWidget(blend_label, 2, 0)
+        chroma_layout.addWidget(self.blend, 2, 1)
 
-        config_group.setLayout(config_layout)
-        main_layout.addWidget(config_group)
+        # Definir o layout do grupo de Chroma Key
+        chroma_group.setLayout(chroma_layout)
+        main_layout.addWidget(chroma_group)
 
         # Área de log
         log_group = QGroupBox("Log")
@@ -665,11 +673,13 @@ class VideoCutterApp(QMainWindow):
         # Status da codificação
         status_group = QGroupBox("Status da Codificação")
         status_layout = QVBoxLayout()
+        status_layout.setContentsMargins(5, 5, 5, 5)  # Reduzir margens (esquerda, topo, direita, base)
+        status_layout.setSpacing(2)  # Reduzir espaçamento entre widgets
         self.status_area = QTextEdit()
         self.status_area.setReadOnly(True)
-        self.status_area.setMinimumHeight(80)  # Altura mínima
-        self.status_area.setMaximumHeight(80)  # Altura máxima
-        self.status_area.setStyleSheet("background-color: #f0f0f0; font-family: monospace;")  # Estilo para destacar
+        self.status_area.setMinimumHeight(30)  # Altura mínima reduzida
+        self.status_area.setMaximumHeight(30)  # Altura máxima reduzida
+        self.status_area.setStyleSheet("background-color: #f0f0f0; font-family: monospace; padding: 2px;")  # Estilo para destacar com padding reduzido
         status_layout.addWidget(self.status_area)
         status_group.setLayout(status_layout)
         main_layout.addWidget(status_group)
@@ -762,7 +772,32 @@ class VideoCutterApp(QMainWindow):
         """Atualiza a área de status da codificação"""
         print(f"[{time.strftime('%H:%M:%S')}] STATUS ATUALIZADO: {message[:100]}...")  # Debug com timestamp
         if message.strip():  # Só atualiza se a mensagem não estiver vazia
-            self.status_area.setText(message)  # Define o texto diretamente
+            # Extrair apenas as informações mais importantes
+            fps_match = re.search(r'fps=\s*([\d\.]+)', message)
+            time_match = re.search(r'time=\s*(\d+:\d+:\d+\.\d+)', message)
+            speed_match = re.search(r'speed=\s*([\d\.]+)x', message)
+
+            # Construir uma mensagem simplificada
+            simplified_message = ""
+            if fps_match:
+                simplified_message += f"FPS: {fps_match.group(1)} "
+            if time_match:
+                simplified_message += f"Tempo: {time_match.group(1)} "
+            if speed_match:
+                simplified_message += f"Velocidade: {speed_match.group(1)}x"
+
+            # Se não conseguimos extrair nenhuma informação, usar a mensagem original filtrada
+            if not simplified_message:
+                # Filtrar informações de frame, total_size e bitrate
+                filtered_message = re.sub(r'frame=\s*\d+\s+', '', message)
+                filtered_message = re.sub(r'total_size=\s*\d+\s+', '', filtered_message)
+                filtered_message = re.sub(r'bitrate=\s*[\d\.]+kbits\/s\s*', '', filtered_message)
+                filtered_message = re.sub(r'size=\s*[\d\.]+[kKmMgG][bB]\s+', '', filtered_message)
+
+                # Remover espaços extras que podem ter sido criados pela remoção
+                simplified_message = re.sub(r'\s+', ' ', filtered_message).strip()
+
+            self.status_area.setText(simplified_message)  # Define o texto simplificado
             # Rola para o final
             self.status_area.verticalScrollBar().setValue(self.status_area.verticalScrollBar().maximum())
 
