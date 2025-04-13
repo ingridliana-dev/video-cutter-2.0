@@ -719,6 +719,11 @@ class VideoCutterApp(QMainWindow):
         self.cancel_button.setEnabled(False)
         button_layout.addWidget(self.cancel_button)
 
+        # Botão para abrir a pasta de saída
+        self.open_folder_button = QPushButton("Abrir Pasta")
+        self.open_folder_button.clicked.connect(self.open_output_folder)
+        button_layout.addWidget(self.open_folder_button)
+
         main_layout.addLayout(button_layout)
 
         # Definir o widget central
@@ -1024,6 +1029,43 @@ class VideoCutterApp(QMainWindow):
                 self.worker.stop()
                 self.start_button.setEnabled(True)
                 self.cancel_button.setEnabled(False)
+
+    def open_output_folder(self):
+        """Abre a pasta de saída no explorador de arquivos"""
+        # Determinar a pasta de saída
+        output_directory = self.output_dir.text()
+        if output_directory:
+            output_path = output_directory
+        else:
+            # Se nenhuma pasta de saída foi especificada, usar a pasta do vídeo de entrada
+            input_file = self.input_path.text()
+            if input_file:
+                output_path = os.path.dirname(input_file)
+            else:
+                # Se nenhum arquivo de entrada foi especificado, mostrar uma mensagem
+                QMessageBox.information(self, "Informação", "Por favor, selecione um vídeo de entrada ou especifique uma pasta de saída.")
+                return
+
+        # Verificar se a pasta existe
+        if not os.path.exists(output_path):
+            QMessageBox.warning(self, "Aviso", f"A pasta {output_path} não existe.")
+            return
+
+        # Abrir a pasta no explorador de arquivos
+        try:
+            # No Windows, usar o comando 'explorer'
+            if os.name == 'nt':
+                os.startfile(output_path)
+            # No macOS, usar o comando 'open'
+            elif os.name == 'posix' and sys.platform == 'darwin':
+                subprocess.call(['open', output_path])
+            # No Linux, usar o comando 'xdg-open'
+            elif os.name == 'posix':
+                subprocess.call(['xdg-open', output_path])
+            else:
+                QMessageBox.warning(self, "Aviso", "Não foi possível abrir a pasta no explorador de arquivos.")
+        except Exception as e:
+            QMessageBox.warning(self, "Erro", f"Erro ao abrir a pasta: {str(e)}")
 
 def main():
     print("Função main() iniciada")
