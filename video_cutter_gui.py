@@ -29,6 +29,7 @@ except Exception as e:
 class VideoCutterWorker(QThread):
     progress_signal = pyqtSignal(int)  # Progresso geral
     log_signal = pyqtSignal(str)
+    status_signal = pyqtSignal(str)  # Novo sinal para atualizar o status da codificação
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
 
@@ -144,6 +145,8 @@ class VideoCutterWorker(QThread):
                 # Verificar qual codificador usar (hardware ou software)
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
+                # Inicializar a área de status com uma mensagem para garantir que está funcionando
+                self.status_signal.emit("Aguardando informações de progresso...")
 
                 # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
@@ -174,34 +177,81 @@ class VideoCutterWorker(QThread):
 
                 # Executar o comando FFmpeg
                 try:
-                    # Adicionar parâmetros para mostrar informações detalhadas
-                    ffmpeg_cmd.extend(["-loglevel", "info", "-stats", "-v", "warning"])
+                    # Adicionar parâmetros para mostrar informações detalhadas como no terminal original
+                    # Não adicionamos parâmetros extras para manter a saída original do FFmpeg
 
                     # Iniciar o processo FFmpeg
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
 
                     # Criar uma thread para ler a saída do FFmpeg e mostrar no log
                     def read_output():
+                        # Variável para controlar a exibição de informações de progresso
+                        show_progress = True
+                        # Contador para limitar a quantidade de linhas exibidas (para não sobrecarregar o log)
+                        frame_counter = 0
+                        # Variável para armazenar a última linha de progresso exibida
+                        last_progress_line = ""
+
                         while self.process.poll() is None and self.is_running:
                             try:
                                 # Ler uma linha da saída de erro (onde o FFmpeg escreve o progresso)
                                 line = self.process.stderr.readline().strip().decode('utf-8', errors='ignore')
                                 if line:
-                                    # Filtrar apenas as linhas relevantes para o log
-                                    if "frame=" in line and "fps=" in line and "time=" in line:
+                                    # Mostrar todas as linhas que começam com "frame=" (informações de progresso)
+                                    if line.startswith("frame="):
+                                        frame_counter += 1
+                                        last_progress_line = line
+
+                                        # Atualizar a área de status com as informações de progresso
+                                        self.status_signal.emit(line)
+                                        print(f"Enviando status: {line}")  # Debug
+
+                                        # Exibir a linha de progresso no log (a cada 10 frames para não sobrecarregar)
+                                        if frame_counter % 10 == 0:
+                                            self.log_signal.emit(line)
+                                            # Forçar a atualização da interface
+                                            QApplication.processEvents()
+                                    # Mostrar informações do encoder
+                                    elif "encoder" in line:
                                         self.log_signal.emit(line)
+                                        # Forçar a atualização da interface
+                                        QApplication.processEvents()
                             except Exception as e:
                                 # Erro ao ler a saída, aguardar um pouco
                                 print(f"Erro ao ler saída: {str(e)}")
                                 time.sleep(0.1)
+
+                        # Exibir a última linha de progresso se não foi exibida ainda
+                        if last_progress_line and frame_counter % 10 != 0:
+                            self.log_signal.emit(last_progress_line)
+                            QApplication.processEvents()
 
                     # Iniciar a thread de leitura
                     read_thread = threading.Thread(target=read_output)
                     read_thread.daemon = True
                     read_thread.start()
 
-                    # Aguardar a conclusão do processo
-                    stdout, stderr = self.process.communicate()
+                    # Aguardar a conclusão do processo, mas verificando periodicamente
+                    # para garantir que a interface seja atualizada
+                    while self.process.poll() is None and self.is_running:
+                        # Aguardar um curto período
+                        time.sleep(0.1)
+                        # Forçar a atualização da interface
+                        QApplication.processEvents()
+
+                    # Aguardar um pouco para garantir que todas as mensagens de progresso sejam exibidas
+                    time.sleep(0.5)
+                    QApplication.processEvents()
+
+                    # Capturar qualquer saída restante
+                    if self.process.stdout:
+                        stdout = self.process.stdout.read()
+                    else:
+                        stdout = ""
+                    if self.process.stderr:
+                        stderr = self.process.stderr.read()
+                    else:
+                        stderr = ""
 
                     # Verificar o resultado
                     if self.process.returncode != 0:
@@ -443,6 +493,18 @@ class VideoCutterApp(QMainWindow):
         log_group.setLayout(log_layout)
         main_layout.addWidget(log_group)
 
+        # Status da codificação
+        status_group = QGroupBox("Status da Codificação")
+        status_layout = QVBoxLayout()
+        self.status_area = QTextEdit()
+        self.status_area.setReadOnly(True)
+        self.status_area.setMinimumHeight(80)  # Altura mínima
+        self.status_area.setMaximumHeight(80)  # Altura máxima
+        self.status_area.setStyleSheet("background-color: #f0f0f0; font-family: monospace;")  # Estilo para destacar
+        status_layout.addWidget(self.status_area)
+        status_group.setLayout(status_layout)
+        main_layout.addWidget(status_group)
+
         # Barra de progresso
         progress_group = QGroupBox("Progresso")
         progress_layout = QVBoxLayout()
@@ -513,6 +575,15 @@ class VideoCutterApp(QMainWindow):
         # Rola para o final
         self.log_area.verticalScrollBar().setValue(self.log_area.verticalScrollBar().maximum())
 
+    def update_status(self, message):
+        """Atualiza a área de status da codificação"""
+        print(f"Atualizando status: {message}")  # Debug
+        self.status_area.setText(message)  # Define o texto diretamente
+        # Rola para o final
+        self.status_area.verticalScrollBar().setValue(self.status_area.verticalScrollBar().maximum())
+        # Força a atualização da interface
+        QApplication.processEvents()
+
     def start_cutting(self):
         """Inicia o processo de corte de vídeo"""
         # Obter os valores dos campos
@@ -549,8 +620,9 @@ class VideoCutterApp(QMainWindow):
             QMessageBox.warning(self, "Aviso", "A duração mínima deve ser menor que a duração máxima.")
             return
 
-        # Limpar o log e resetar a barra de progresso
+        # Limpar o log, a área de status e resetar a barra de progresso
         self.log_area.clear()
+        self.status_area.clear()
         self.progress_bar.setValue(0)
 
         # Desabilitar o botão de iniciar e habilitar o botão de cancelar
@@ -602,6 +674,7 @@ class VideoCutterApp(QMainWindow):
         # Conectar os sinais
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.log_signal.connect(self.log)
+        self.worker.status_signal.connect(self.update_status)  # Conectar o sinal de status
         self.worker.finished_signal.connect(self.process_finished)
         self.worker.error_signal.connect(self.process_error)
 
@@ -618,6 +691,7 @@ class VideoCutterApp(QMainWindow):
     def process_finished(self):
         """Chamado quando o processo é concluído"""
         self.log("Processo concluído com sucesso!")
+        self.status_area.clear()  # Limpar a área de status
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
@@ -625,6 +699,7 @@ class VideoCutterApp(QMainWindow):
         """Chamado quando ocorre um erro no processo"""
         QMessageBox.critical(self, "Erro", error_message)
         self.log(f"ERRO: {error_message}")
+        self.status_area.clear()  # Limpar a área de status
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
@@ -636,6 +711,7 @@ class VideoCutterApp(QMainWindow):
                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.log("Cancelando processo...")
+                self.status_area.clear()  # Limpar a área de status
                 self.worker.stop()
                 self.start_button.setEnabled(True)
                 self.cancel_button.setEnabled(False)

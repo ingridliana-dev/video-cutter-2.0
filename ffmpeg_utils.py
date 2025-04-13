@@ -156,12 +156,14 @@ def run_ffmpeg_command(cmd):
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
 
+    # Configurar o processo para capturar a saída em tempo real
     return subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         universal_newlines=True,
-        startupinfo=startupinfo
+        startupinfo=startupinfo,
+        bufsize=1  # Buffering linha a linha
     )
 
 def run_ffprobe_command(cmd):
