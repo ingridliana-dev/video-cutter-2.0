@@ -22,7 +22,7 @@ a = Analysis(
     ['video_cutter_gui.py'],
     pathex=[],
     binaries=ffmpeg_binaries,
-    datas=[],
+    datas=[("video-cutter-icone.png", ".")],  # Incluir o arquivo de ícone como dado
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -42,7 +42,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='Video Cutter',
+    name='Video Cutter 2.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -55,5 +55,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='scissors_icon.ico',  # Ícone de tesoura para representar corte
+    icon='video-cutter-icone.ico',  # Ícone personalizado do Video Cutter
 )

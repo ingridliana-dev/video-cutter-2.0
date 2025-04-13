@@ -21,7 +21,7 @@ try:
                                 QMessageBox, QColorDialog, QDoubleSpinBox, QFrame, QGridLayout,
                                 QFormLayout)
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QProcess
-    from PyQt5.QtGui import QColor
+    from PyQt5.QtGui import QColor, QIcon
     print("PyQt5 importado com sucesso!")
 except Exception as e:
     print(f"Erro ao importar PyQt5: {e}")
@@ -621,6 +621,11 @@ class VideoCutterApp(QMainWindow):
         self.setFixedSize(530, 630)
         # Impedir maximização
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowMaximizeButtonHint)
+
+        # Definir o ícone da janela
+        icon_path = "video-cutter-icone.png"
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         # Widget central e layout principal
         central_widget = QWidget()
