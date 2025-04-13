@@ -145,8 +145,16 @@ class VideoCutterWorker(QThread):
                 # Verificar qual codificador usar (hardware ou software)
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
-                # Inicializar a área de status com uma mensagem descritiva
-                self.status_signal.emit("Linhas de progresso com frame, fps, qualidade, tamanho e tempo\n(por exemplo, \"frame= 12 fps=1.5 q=16.0 size= 512KiB time=00:00:00.30 bitrate=13982.3kbits/s speed=0.0364x\")\nem tempo real enquanto mostra isso: Usando codificador de vídeo: " + encoder_name)
+                # Inicializar a área de status com um exemplo de como será a saída
+                exemplo_status = [
+                    "frame=    1 fps=0.0 q=0.0 size=       0kB time=00:00:00.00 bitrate=N/A speed=   0x",
+                    "frame=   12 fps=1.5 q=16.0 size=     512kB time=00:00:00.30 bitrate=13982.3kbits/s speed=0.0364x",
+                    "frame=   24 fps=2.0 q=16.0 size=    1024kB time=00:00:00.80 bitrate=10485.8kbits/s speed=0.0667x",
+                    "frame=   48 fps=3.2 q=16.0 size=    2048kB time=00:00:01.60 bitrate=10485.8kbits/s speed=0.107x",
+                    "frame=   96 fps=5.1 q=16.0 size=    4096kB time=00:00:03.20 bitrate=10485.8kbits/s speed=0.170x",
+                    "frame=  192 fps=8.7 q=16.0 size=    8192kB time=00:00:06.40 bitrate=10485.8kbits/s speed=0.291x"
+                ]
+                self.status_signal.emit("\n".join(exemplo_status))
 
                 # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
@@ -191,6 +199,8 @@ class VideoCutterWorker(QThread):
                         frame_counter = 0
                         # Variável para armazenar a última linha de progresso exibida
                         last_progress_line = ""
+                        # Lista para armazenar as últimas linhas de progresso (para exibição na área de status)
+                        progress_lines = []
 
                         while self.process.poll() is None and self.is_running:
                             try:
@@ -202,9 +212,15 @@ class VideoCutterWorker(QThread):
                                         frame_counter += 1
                                         last_progress_line = line
 
-                                        # Atualizar a área de status com as informações de progresso
-                                        self.status_signal.emit(line)
-                                        print(f"Enviando status: {line}")  # Debug
+                                        # Adicionar a linha à lista de linhas de progresso (máximo 6 linhas)
+                                        progress_lines.append(line)
+                                        if len(progress_lines) > 6:
+                                            progress_lines.pop(0)  # Remover a linha mais antiga
+
+                                        # Atualizar a área de status com as últimas linhas de progresso
+                                        status_text = "\n".join(progress_lines)
+                                        self.status_signal.emit(status_text)
+                                        print(f"Enviando status: {len(progress_lines)} linhas")  # Debug
 
                                         # Exibir a linha de progresso no log (a cada 10 frames para não sobrecarregar)
                                         if frame_counter % 10 == 0:
