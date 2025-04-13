@@ -27,7 +27,7 @@ except Exception as e:
     traceback.print_exc()
 
 class VideoCutterWorker(QThread):
-    progress_signal = pyqtSignal(int)  # Progresso geral
+    progress_signal = pyqtSignal(float)  # Progresso geral (alterado para float para maior precisão)
     log_signal = pyqtSignal(str)
     status_signal = pyqtSignal(str)  # Novo sinal para atualizar o status da codificação
     finished_signal = pyqtSignal()
@@ -51,8 +51,17 @@ class VideoCutterWorker(QThread):
         self.is_running = True
         self.process = None
 
+        # Variáveis para controle de progresso (acessíveis pela interface)
+        self.duration = 0  # Duração da parte atual sendo processada
+        self.total_duration = 0  # Duração total do vídeo
+        self.current_time = 0  # Tempo atual de processamento
+
     def run(self):
         try:
+            # Inicializar o progresso em 0% no início do processamento
+            self.progress_signal.emit(0.0)
+            print(f"[{time.strftime('%H:%M:%S')}] INICIANDO PROCESSAMENTO - PROGRESSO: 0.0%")
+
             # Verificar se os arquivos existem
             if not os.path.isfile(self.input_file):
                 self.error_signal.emit(f"Arquivo de entrada não encontrado: {self.input_file}")
@@ -86,6 +95,9 @@ class VideoCutterWorker(QThread):
             if total_duration <= 0:
                 self.error_signal.emit("Não foi possível obter a duração do vídeo principal ou a duração é inválida.")
                 return
+            # Armazenar a duração total para uso posterior
+            self.total_duration = total_duration
+            print(f"[{time.strftime('%H:%M:%S')}] DEFININDO TOTAL_DURATION: {total_duration}")
             self.log_signal.emit(f"Duração total do vídeo: {total_duration:.2f} segundos")
 
             # Obter a duração do vídeo do selo
@@ -100,6 +112,10 @@ class VideoCutterWorker(QThread):
             part_number = self.start_index
             total_parts = 0
 
+            # Enviar progresso inicial
+            self.progress_signal.emit(0.0)
+            print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO INICIAL: 0.0%")
+
             # Calcular o número total estimado de partes para a barra de progresso
             avg_duration = (self.min_duration + self.max_duration) / 2
             estimated_parts = int(total_duration / avg_duration) + 1
@@ -111,6 +127,12 @@ class VideoCutterWorker(QThread):
                 # Se a duração ultrapassar o fim do vídeo, ajusta para terminar no tempo total
                 if current_time + duration > total_duration:
                     duration = total_duration - current_time
+
+                # Armazenar a duração da parte atual para uso posterior
+                self.duration = duration
+                # Armazenar o tempo atual para uso posterior
+                self.current_time = current_time
+                print(f"[{time.strftime('%H:%M:%S')}] DEFININDO DURATION: {duration}, CURRENT_TIME: {current_time}")
 
                 # Garante que a duração mínima seja respeitada, a menos que seja o último segmento e menor que min_duration
                 if duration < self.min_duration and (current_time + duration) < total_duration:
@@ -251,6 +273,64 @@ class VideoCutterWorker(QThread):
                                         # Forçar a atualização da interface para garantir que as informações sejam exibidas em tempo real
                                         QApplication.processEvents()
 
+                                        # Extrair informações de tempo para atualizar a barra de progresso
+                                        # Verificar se a linha contém informações de tempo (out_time ou time=)
+                                        if "out_time=" in line or "time=" in line:
+                                            try:
+                                                # Primeiro tentar extrair out_time (formato mais confiável)
+                                                out_time_match = re.search(r'out_time=(\d+:\d+:\d+\.\d+)', line)
+                                                time_match = re.search(r'time=(\d+:\d+:\d+\.\d+)', line)
+
+                                                # Usar out_time se disponível, caso contrário usar time
+                                                if out_time_match:
+                                                    time_str = out_time_match.group(1)
+                                                    print(f"[{time.strftime('%H:%M:%S')}] Encontrado out_time: {time_str}")
+                                                elif time_match:
+                                                    time_str = time_match.group(1)
+                                                    print(f"[{time.strftime('%H:%M:%S')}] Encontrado time: {time_str}")
+                                                else:
+                                                    # Se não encontrar nenhum dos dois, continuar para a próxima linha
+                                                    continue
+
+                                                # Converter o tempo no formato HH:MM:SS.MS para segundos
+                                                h, m, s = time_str.split(':')  # Separa horas, minutos e segundos
+                                                s, ms = s.split('.')  # Separa segundos e milissegundos
+                                                current_seconds = int(h) * 3600 + int(m) * 60 + int(s) + float(f"0.{ms}")
+
+                                                # Verificar se temos valores válidos para duration e total_duration
+                                                if self.duration > 0 and self.total_duration > 0:
+                                                    # Calcular o progresso atual dentro da parte sendo processada
+                                                    part_progress = (current_seconds / self.duration) * 100
+                                                    print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO DA PARTE: {part_progress:.1f}%")
+
+                                                    # Calcular o progresso geral considerando as partes já processadas
+                                                    # e a parte atual que está sendo processada
+                                                    # Corrigir o cálculo para garantir que o progresso comece do zero
+                                                    # e avance corretamente durante todo o processamento
+                                                    overall_progress = (self.current_time / self.total_duration) * 100
+                                                    overall_progress += (current_seconds / self.total_duration) * 100
+
+                                                    # Limitar o progresso a 99.9% para evitar que chegue a 100% antes de terminar
+                                                    if overall_progress > 99.9:
+                                                        overall_progress = 99.9
+
+                                                    # Enviar o progresso atualizado
+                                                    self.progress_signal.emit(overall_progress)
+                                                    print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO GERAL: {overall_progress:.1f}%")
+                                                else:
+                                                    # Se não temos valores válidos, usar uma abordagem mais simples
+                                                    # Usar apenas o tempo atual como uma porcentagem da duração estimada do vídeo
+                                                    # Assumir que o vídeo tem duração de 2 minutos (120 segundos) se não soubermos
+                                                    estimated_duration = 120
+                                                    simple_progress = (current_seconds / estimated_duration) * 100
+                                                    if simple_progress > 99.9:
+                                                        simple_progress = 99.9
+                                                    self.progress_signal.emit(simple_progress)
+                                                    print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO SIMPLES: {simple_progress:.1f}%")
+                                            except Exception as e:
+                                                print(f"[{time.strftime('%H:%M:%S')}] Erro ao extrair tempo: {str(e)}")
+                                                traceback.print_exc()
+
                                         # Não exibir as linhas de progresso no log, apenas no status
                                         # Isso mantém o log limpo com apenas informações importantes para o usuário
                                         # Forçar a atualização da interface
@@ -348,8 +428,8 @@ class VideoCutterWorker(QThread):
                 part_number += 1
                 total_parts += 1
 
-                # Atualizar o progresso
-                progress = int((current_time / total_duration) * 100)
+                # Atualizar o progresso com maior precisão (usando float em vez de int)
+                progress = (current_time / total_duration) * 100
                 self.progress_signal.emit(progress)
 
                 # Verificar se o processo foi cancelado
@@ -589,9 +669,23 @@ class VideoCutterApp(QMainWindow):
         progress_group = QGroupBox("Progresso")
         progress_layout = QVBoxLayout()
 
+        # Layout horizontal para a barra de progresso e o rótulo de porcentagem
+        progress_bar_layout = QHBoxLayout()
+
+        # Barra de progresso
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        progress_layout.addWidget(self.progress_bar)
+        # Desativar o texto padrão da barra de progresso para evitar números estranhos
+        self.progress_bar.setTextVisible(False)
+        progress_bar_layout.addWidget(self.progress_bar, 9)  # Peso 9 para ocupar mais espaço
+
+        # Rótulo de porcentagem
+        self.progress_percent_label = QLabel("0%")
+        self.progress_percent_label.setAlignment(Qt.AlignCenter)
+        self.progress_percent_label.setMinimumWidth(40)  # Largura mínima para garantir espaço suficiente
+        progress_bar_layout.addWidget(self.progress_percent_label, 1)  # Peso 1 para ocupar menos espaço
+
+        progress_layout.addLayout(progress_bar_layout)
 
         progress_group.setLayout(progress_layout)
         main_layout.addWidget(progress_group)
@@ -662,6 +756,72 @@ class VideoCutterApp(QMainWindow):
             self.status_area.setText(message)  # Define o texto diretamente
             # Rola para o final
             self.status_area.verticalScrollBar().setValue(self.status_area.verticalScrollBar().maximum())
+
+            # Tentar extrair informações de tempo para atualizar a barra de progresso
+            try:
+                # Verificar se a mensagem contém informações de out_time
+                out_time_match = re.search(r'out_time=(\d+:\d+:\d+\.\d+)', message)
+                if out_time_match:
+                    time_str = out_time_match.group(1)
+                    print(f"[{time.strftime('%H:%M:%S')}] ENCONTRADO OUT_TIME NO STATUS: {time_str}")
+
+                    # Converter o tempo no formato HH:MM:SS.MS para segundos
+                    h, m, s = time_str.split(':')  # Separa horas, minutos e segundos
+                    s, ms = s.split('.')  # Separa segundos e milissegundos
+                    current_seconds = int(h) * 3600 + int(m) * 60 + int(s) + float(f"0.{ms}")
+
+                    # Obter a duração total do vídeo atual sendo processado
+                    if hasattr(self, 'worker') and hasattr(self.worker, 'duration') and hasattr(self.worker, 'total_duration'):
+                        duration = self.worker.duration
+                        total_duration = self.worker.total_duration
+                        current_time = self.worker.current_time
+
+                        print(f"[{time.strftime('%H:%M:%S')}] DADOS DO WORKER: duration={duration}, total_duration={total_duration}, current_time={current_time}")
+
+                        # Verificar se os valores são válidos
+                        if duration > 0 and total_duration > 0:
+                            # Calcular o progresso atual dentro da parte sendo processada
+                            part_progress = (current_seconds / duration) * 100
+
+                            # Calcular o progresso geral considerando as partes já processadas
+                            # e a parte atual que está sendo processada
+                            # Corrigir o cálculo para garantir que o progresso comece do zero
+                            # e avance corretamente durante todo o processamento
+                            overall_progress = (current_time / total_duration) * 100
+                            overall_progress += (current_seconds / total_duration) * 100
+
+                            # Limitar o progresso a 99.9% para evitar que chegue a 100% antes de terminar
+                            if overall_progress > 99.9:
+                                overall_progress = 99.9
+
+                            # Atualizar a barra de progresso
+                            self.update_progress(overall_progress)
+                            print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO (do status): {overall_progress:.1f}%")
+                        else:
+                            # Se não temos valores válidos, usar uma abordagem mais simples
+                            # Usar apenas o tempo atual como uma porcentagem da duração estimada do vídeo
+                            # Assumir que o vídeo tem duração de 2 minutos (120 segundos) se não soubermos
+                            estimated_duration = 120
+                            simple_progress = (current_seconds / estimated_duration) * 100
+                            if simple_progress > 99.9:
+                                simple_progress = 99.9
+                            self.update_progress(simple_progress)
+                            print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO SIMPLES: {simple_progress:.1f}%")
+                    else:
+                        # Se não temos acesso ao worker ou suas propriedades, usar uma abordagem mais simples
+                        # Usar apenas o tempo atual como uma porcentagem da duração estimada do vídeo
+                        # Assumir que o vídeo tem duração de 2 minutos (120 segundos) se não soubermos
+                        estimated_duration = 120
+                        simple_progress = (current_seconds / estimated_duration) * 100
+                        if simple_progress > 99.9:
+                            simple_progress = 99.9
+                        self.update_progress(simple_progress)
+                        print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO SIMPLES (sem worker): {simple_progress:.1f}%")
+            except Exception as e:
+                # Ignorar erros ao extrair tempo do status, mas imprimir para debug
+                print(f"[{time.strftime('%H:%M:%S')}] Erro ao extrair tempo do status: {str(e)}")
+                traceback.print_exc()
+
             # Força a atualização da interface
             QApplication.processEvents()
 
@@ -704,7 +864,8 @@ class VideoCutterApp(QMainWindow):
         # Limpar o log, a área de status e resetar a barra de progresso
         self.log_area.clear()
         self.status_area.clear()
-        self.progress_bar.setValue(0)
+        # Usar o método update_progress para garantir consistência
+        self.update_progress(0.0)
 
         # Desabilitar o botão de iniciar e habilitar o botão de cancelar
         self.start_button.setEnabled(False)
@@ -768,13 +929,34 @@ class VideoCutterApp(QMainWindow):
         self.worker.start()
 
     def update_progress(self, value):
-        """Atualiza a barra de progresso"""
-        self.progress_bar.setValue(value)
+        """Atualiza a barra de progresso e o rótulo de porcentagem"""
+        # Garantir que o valor esteja entre 0 e 100
+        if value < 0:
+            value = 0
+        elif value > 100:
+            value = 100
+
+        # Atualizar a barra de progresso com o valor inteiro
+        self.progress_bar.setValue(int(value))
+
+        # Atualizar o rótulo de porcentagem com uma casa decimal para maior precisão
+        self.progress_percent_label.setText(f"{value:.1f}%")
+
+        # Imprimir para debug
+        print(f"[{time.strftime('%H:%M:%S')}] Atualizando progresso: {value:.1f}%")
+
+        # Forçar a atualização da interface
+        QApplication.processEvents()
 
     def process_finished(self):
         """Chamado quando o processo é concluído"""
         self.log("Processo concluído com sucesso!")
         self.status_area.clear()  # Limpar a área de status
+
+        # Garantir que a barra de progresso e o rótulo mostrem 100%
+        # Usar o método update_progress para garantir consistência
+        self.update_progress(100.0)
+
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
