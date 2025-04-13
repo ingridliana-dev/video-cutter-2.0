@@ -145,8 +145,8 @@ class VideoCutterWorker(QThread):
                 # Verificar qual codificador usar (hardware ou software)
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
-                # Inicializar a área de status com uma mensagem para garantir que está funcionando
-                self.status_signal.emit("Aguardando informações de progresso...")
+                # Inicializar a área de status com uma mensagem descritiva
+                self.status_signal.emit("Linhas de progresso com frame, fps, qualidade, tamanho e tempo\n(por exemplo, \"frame= 12 fps=1.5 q=16.0 size= 512KiB time=00:00:00.30 bitrate=13982.3kbits/s speed=0.0364x\")\nem tempo real enquanto mostra isso: Usando codificador de vídeo: " + encoder_name)
 
                 # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
