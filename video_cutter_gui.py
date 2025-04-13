@@ -598,18 +598,16 @@ class VideoCutterApp(QMainWindow):
         duration_layout.addWidget(self.max_duration)
         config_layout.addLayout(duration_layout)
 
-        # Grupo de configurações avançadas (Chroma Key)
-        advanced_group = QGroupBox("Configurações de Chroma Key")
-        advanced_layout = QVBoxLayout(advanced_group)  # Definir o layout diretamente no grupo
+        # Adicionar um separador visual
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        config_layout.addWidget(separator)
 
-        # Informações sobre o Chroma Key
-        info_label = QLabel("Configure os parâmetros do Chroma Key para o vídeo do selo:")
-        info_label.setWordWrap(True)  # Permitir quebra de linha
-        info_label.setStyleSheet("margin-bottom: 10px; font-weight: bold;")  # Adicionar espaçamento e negrito
-        advanced_layout.addWidget(info_label)
-
-        # Adicionar um espaçador para melhorar a aparência
-        advanced_layout.addSpacing(5)
+        # Adicionar um separador para as configurações de Chroma Key
+        chroma_key_label = QLabel("Configurações de Chroma Key")
+        chroma_key_label.setStyleSheet("font-weight: bold; margin-top: 10px; margin-bottom: 5px;")
+        config_layout.addWidget(chroma_key_label)
 
         # Cor do Chroma Key
         chroma_color_layout = QHBoxLayout()
@@ -621,40 +619,36 @@ class VideoCutterApp(QMainWindow):
         chroma_color_layout.addWidget(chroma_color_label)
         chroma_color_layout.addWidget(self.chroma_color)
         chroma_color_layout.addWidget(chroma_color_button)
-        advanced_layout.addLayout(chroma_color_layout)
+        config_layout.addLayout(chroma_color_layout)
 
-        # Adicionar um pequeno espaçamento entre os controles
-        advanced_layout.addSpacing(5)
+        # Similaridade e Suavidade em um único layout horizontal
+        similarity_blend_layout = QHBoxLayout()
 
         # Similaridade
-        similarity_layout = QHBoxLayout()
         similarity_label = QLabel("Similaridade:")
         self.similarity = QDoubleSpinBox()
         self.similarity.setRange(0.01, 1.0)
         self.similarity.setSingleStep(0.01)
         self.similarity.setValue(0.30)
         self.similarity.setToolTip("Quanto maior o valor, mais tons da cor serão removidos (0.01-1.0)")
-        similarity_layout.addWidget(similarity_label)
-        similarity_layout.addWidget(self.similarity)
-        advanced_layout.addLayout(similarity_layout)
+        similarity_blend_layout.addWidget(similarity_label)
+        similarity_blend_layout.addWidget(self.similarity)
 
-        # Adicionar um pequeno espaçamento entre os controles
-        advanced_layout.addSpacing(5)
+        # Espaçador entre os controles
+        similarity_blend_layout.addSpacing(20)
 
         # Suavidade de borda
-        blend_layout = QHBoxLayout()
         blend_label = QLabel("Suavidade de borda:")
         self.blend = QDoubleSpinBox()
         self.blend.setRange(0.0, 1.0)
         self.blend.setSingleStep(0.05)
         self.blend.setValue(0.35)  # Valor aumentado para melhorar a suavidade
         self.blend.setToolTip("Quanto maior o valor, mais suaves serão as bordas (0.0-1.0)")
-        blend_layout.addWidget(blend_label)
-        blend_layout.addWidget(self.blend)
-        advanced_layout.addLayout(blend_layout)
+        similarity_blend_layout.addWidget(blend_label)
+        similarity_blend_layout.addWidget(self.blend)
 
-        # O layout já foi definido no construtor
-        config_layout.addWidget(advanced_group)
+        # Adicionar o layout combinado ao layout principal
+        config_layout.addLayout(similarity_blend_layout)
 
         config_group.setLayout(config_layout)
         main_layout.addWidget(config_group)
