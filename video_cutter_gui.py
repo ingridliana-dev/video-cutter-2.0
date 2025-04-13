@@ -145,8 +145,9 @@ class VideoCutterWorker(QThread):
                 # Verificar qual codificador usar (hardware ou software)
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
-                # Inicializar a área de status com uma mensagem informativa
-                self.status_signal.emit("Iniciando processamento...\nCapturando informações do FFmpeg...")
+                # Inicializar a área de status com uma mensagem vazia
+                # A área será preenchida com informações reais de codificação quando o processo começar
+                self.status_signal.emit("")
 
                 # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
@@ -177,9 +178,8 @@ class VideoCutterWorker(QThread):
 
                 # Executar o comando FFmpeg
                 try:
-                    # Adicionar parâmetros para mostrar informações detalhadas como no terminal original
-                    # Adicionar parâmetros para garantir que o FFmpeg gere informações de progresso detalhadas
-                    ffmpeg_cmd.extend(["-stats", "-v", "info"])
+                    # Os parâmetros de progresso agora são adicionados no ffmpeg_utils.py
+                    # para garantir que sejam aplicados a todos os comandos FFmpeg
 
                     # Iniciar o processo FFmpeg
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
@@ -200,16 +200,38 @@ class VideoCutterWorker(QThread):
                                 # Ler uma linha da saída de erro (onde o FFmpeg escreve o progresso)
                                 # Usar read(1) para ler byte a byte e garantir que a saída seja em tempo real
                                 line_bytes = b''
+                                # Adicionar um timeout para não ficarmos presos em uma linha
+                                start_time = time.time()
                                 while True:
-                                    byte = self.process.stderr.read(1)
-                                    if not byte or byte == b'\n':
+                                    # Verificar se temos dados disponíveis para leitura
+                                    # Agora lemos de stdout em vez de stderr porque redirecionamos stderr para stdout
+                                    if self.process.stdout.readable():
+                                        try:
+                                            byte = self.process.stdout.read(1)
+                                            if not byte or byte == b'\n':
+                                                break
+                                            line_bytes += byte
+                                        except Exception as e:
+                                            print(f"[{time.strftime('%H:%M:%S')}] Erro ao ler byte: {str(e)}")
+                                            break
+
+                                    # Verificar se passamos do timeout (100ms)
+                                    if time.time() - start_time > 0.1:
+                                        print(f"[{time.strftime('%H:%M:%S')}] Timeout ao ler linha")
                                         break
-                                    line_bytes += byte
+
                                 line = line_bytes.strip().decode('utf-8', errors='ignore')
+                                # Imprimir a linha para debug com timestamp para verificar se está sendo capturada em tempo real
+                                print(f"[{time.strftime('%H:%M:%S')}] Linha lida: {line}")
                                 if line:
-                                    # Capturar todas as linhas relevantes para exibição na área de status
-                                    # Linhas de progresso (começam com "frame=")
-                                    if line.startswith("frame="):
+                                    # Capturar qualquer linha que contenha informações de progresso
+                                    # Verificar se a linha contém informações de frame ou outras informações relevantes
+                                    if (line.startswith("frame=") or
+                                        "fps=" in line or
+                                        "time=" in line or
+                                        "bitrate=" in line or
+                                        "speed=" in line or
+                                        "size=" in line):
                                         frame_counter += 1
                                         last_progress_line = line
 
@@ -221,29 +243,35 @@ class VideoCutterWorker(QThread):
                                         # Atualizar a área de status com as últimas linhas de progresso
                                         status_text = "\n".join(progress_lines)
                                         self.status_signal.emit(status_text)
-                                        print(f"Enviando status (frame): {line}")  # Debug mais detalhado
+                                        print(f"[{time.strftime('%H:%M:%S')}] ENVIANDO PARA STATUS: {line}")  # Debug com timestamp
+
+                                        # Forçar a atualização da interface para garantir que as informações sejam exibidas em tempo real
+                                        QApplication.processEvents()
 
                                         # Exibir a linha de progresso no log (a cada 10 frames para não sobrecarregar)
                                         if frame_counter % 10 == 0:
                                             self.log_signal.emit(line)
                                             # Forçar a atualização da interface
                                             QApplication.processEvents()
-                                    # Mostrar informações do encoder e outras informações relevantes
-                                    elif "encoder" in line or "Stream mapping" in line or "Press" in line or "size=" in line or "time=" in line or "bitrate=" in line or "fps=" in line or "speed=" in line:
-                                        # Adicionar à lista de progresso para exibir na área de status
-                                        progress_lines.append(line)
-                                        if len(progress_lines) > 6:
-                                            progress_lines.pop(0)  # Remover a linha mais antiga
-
-                                        # Atualizar a área de status
-                                        status_text = "\n".join(progress_lines)
-                                        self.status_signal.emit(status_text)
-                                        print(f"Enviando status (info): {line}")  # Debug
-
-                                        # Também adicionar ao log
+                                    # Mostrar informações do encoder e outras mensagens no log, mas não na área de status
+                                    elif "encoder" in line or "Stream mapping" in line or "Press" in line or "Parsed_overlay" in line or "framesync" in line or "Sync level" in line:
+                                        # Apenas adicionar ao log
                                         self.log_signal.emit(line)
                                         # Forçar a atualização da interface
                                         QApplication.processEvents()
+
+                                        # Se for uma mensagem de sincronização, não deixar que ela afete a área de status
+                                        if "Parsed_overlay" in line or "framesync" in line or "Sync level" in line:
+                                            print(f"[{time.strftime('%H:%M:%S')}] IGNORANDO MENSAGEM DE SINCRONIZAÇÃO: {line}")
+
+                                            # Garantir que a área de status continue mostrando as informações de progresso
+                                            if progress_lines:  # Se houver linhas de progresso anteriores
+                                                status_text = "\n".join(progress_lines)
+                                                self.status_signal.emit(status_text)
+                                                print(f"[{time.strftime('%H:%M:%S')}] RESTAURANDO STATUS IMEDIATAMENTE: {status_text[:50]}...")
+
+                                                # Forçar a atualização da interface
+                                                QApplication.processEvents()
                             except Exception as e:
                                 # Erro ao ler a saída, aguardar um pouco
                                 print(f"Erro ao ler saída: {str(e)}")
@@ -259,6 +287,26 @@ class VideoCutterWorker(QThread):
                     read_thread.daemon = True
                     read_thread.start()
 
+                    # Criar uma thread separada para monitorar o status e garantir que ele continue sendo atualizado
+                    def monitor_status():
+                        last_update_time = time.time()
+                        while self.process.poll() is None and self.is_running:
+                            current_time = time.time()
+                            # Se passaram mais de 0.5 segundos desde a última atualização de status e temos linhas de progresso
+                            # Atualizar com mais frequência para garantir que as informações sejam exibidas em tempo real
+                            if current_time - last_update_time > 0.5 and progress_lines:
+                                # Restaurar o status anterior
+                                status_text = "\n".join(progress_lines)
+                                self.status_signal.emit(status_text)
+                                print(f"[{time.strftime('%H:%M:%S')}] RESTAURANDO STATUS PERIODICAMENTE: {status_text[:50]}...")
+                                last_update_time = current_time
+                            time.sleep(0.1)  # Verificar com mais frequência para garantir atualizações em tempo real
+
+                    # Iniciar a thread de monitoramento
+                    monitor_thread = threading.Thread(target=monitor_status)
+                    monitor_thread.daemon = True
+                    monitor_thread.start()
+
                     # Aguardar a conclusão do processo, mas verificando periodicamente
                     # para garantir que a interface seja atualizada
                     while self.process.poll() is None and self.is_running:
@@ -272,18 +320,19 @@ class VideoCutterWorker(QThread):
                     QApplication.processEvents()
 
                     # Capturar qualquer saída restante
-                    if self.process.stdout:
-                        stdout = self.process.stdout.read()
-                    else:
-                        stdout = ""
-                    if self.process.stderr:
-                        stderr = self.process.stderr.read()
-                    else:
-                        stderr = ""
+                    # Agora só precisamos ler de stdout porque redirecionamos stderr para stdout
+                    try:
+                        if self.process.stdout and self.process.stdout.readable():
+                            stdout = self.process.stdout.read()
+                        else:
+                            stdout = b""
+                    except Exception as e:
+                        print(f"[{time.strftime('%H:%M:%S')}] Erro ao ler saída restante: {str(e)}")
+                        stdout = b""
 
                     # Verificar o resultado
                     if self.process.returncode != 0:
-                        self.log_signal.emit(f"Erro ao processar parte {part_number}: {stderr}")
+                        self.log_signal.emit(f"Erro ao processar parte {part_number}: {stdout.decode('utf-8', errors='ignore')}")
                     else:
                         self.log_signal.emit(f"Parte {part_number} concluída com sucesso!")
                 except Exception as e:
@@ -605,7 +654,7 @@ class VideoCutterApp(QMainWindow):
 
     def update_status(self, message):
         """Atualiza a área de status da codificação"""
-        print(f"Atualizando status: {message[:50]}...")  # Debug (mostra apenas os primeiros 50 caracteres)
+        print(f"[{time.strftime('%H:%M:%S')}] STATUS ATUALIZADO: {message[:100]}...")  # Debug com timestamp
         if message.strip():  # Só atualiza se a mensagem não estiver vazia
             self.status_area.setText(message)  # Define o texto diretamente
             # Rola para o final

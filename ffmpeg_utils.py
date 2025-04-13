@@ -157,10 +157,16 @@ def run_ffmpeg_command(cmd):
         startupinfo.wShowWindow = subprocess.SW_HIDE
 
     # Configurar o processo para capturar a saída em tempo real
+    # Redirecionar stderr para stdout para garantir que todas as mensagens sejam capturadas
+    # e que as mensagens de sincronização não interfiram com as mensagens de progresso
+    # Usar -stats para garantir que as informações de progresso sejam exibidas em tempo real
+    # Usar -loglevel verbose para garantir que todas as informações sejam exibidas
+    cmd.extend(["-loglevel", "verbose", "-stats", "-progress", "pipe:1"])
+
     return subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Redirecionar stderr para stdout
         universal_newlines=False,  # Usar bytes para evitar problemas de codificação
         startupinfo=startupinfo,
         bufsize=0  # Sem buffering para garantir saída em tempo real
