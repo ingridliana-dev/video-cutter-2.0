@@ -174,8 +174,30 @@ class VideoCutterWorker(QThread):
 
                 # Executar o comando FFmpeg
                 try:
+                    # Adicionar parâmetros para mostrar informações detalhadas
+                    ffmpeg_cmd.extend(["-loglevel", "info"])
+
                     # Iniciar o processo FFmpeg
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
+
+                    # Criar uma thread para ler a saída do FFmpeg e mostrar no log
+                    def read_output():
+                        while self.process.poll() is None and self.is_running:
+                            try:
+                                # Ler uma linha da saída
+                                line = self.process.stdout.readline().strip().decode('utf-8', errors='ignore')
+                                if line:
+                                    # Filtrar apenas as linhas relevantes para o log
+                                    if "frame=" in line and "fps=" in line and "time=" in line:
+                                        self.log_signal.emit(f"Codificando: {line}")
+                            except Exception:
+                                # Erro ao ler a saída, aguardar um pouco
+                                time.sleep(0.1)
+
+                    # Iniciar a thread de leitura
+                    read_thread = threading.Thread(target=read_output)
+                    read_thread.daemon = True
+                    read_thread.start()
 
                     # Aguardar a conclusão do processo
                     stdout, stderr = self.process.communicate()
