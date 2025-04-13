@@ -240,11 +240,24 @@ class VideoCutterWorker(QThread):
                 ]
 
                 # Adicionar acelerador de hardware apropriado com base no codificador
+                # Detectar o fabricante da GPU
+                gpu_vendor = ffmpeg_utils.detect_gpu_vendor()
+
+                # Configurar o acelerador de hardware com base no fabricante da GPU e no codificador
                 if encoder_name == "h264_nvenc":
                     ffmpeg_cmd.extend(["-hwaccel", "cuda"])
                 elif encoder_name == "h264_amf":
                     ffmpeg_cmd.extend(["-hwaccel", "d3d11va"])
                 elif encoder_name == "h264_qsv":
+                    ffmpeg_cmd.extend(["-hwaccel", "qsv"])
+                elif gpu_vendor == "amd":
+                    # Fallback para AMD se o codificador não for específico
+                    ffmpeg_cmd.extend(["-hwaccel", "d3d11va"])
+                elif gpu_vendor == "nvidia":
+                    # Fallback para NVIDIA se o codificador não for específico
+                    ffmpeg_cmd.extend(["-hwaccel", "cuda"])
+                elif gpu_vendor == "intel":
+                    # Fallback para Intel se o codificador não for específico
                     ffmpeg_cmd.extend(["-hwaccel", "qsv"])
 
                 # Adicionar o resto dos parâmetros
@@ -612,16 +625,32 @@ class VideoCutterApp(QMainWindow):
             print("FFmpeg não encontrado!")
             return
 
+        # Detectar o fabricante da GPU
+        gpu_vendor = ffmpeg_utils.detect_gpu_vendor()
+        print(f"Fabricante da GPU detectado: {gpu_vendor}")
+
         # Verificar quais aceleradores de hardware estão disponíveis
         has_nvenc = ffmpeg_utils.has_nvenc()
         has_amf = ffmpeg_utils.has_amf()
         has_qsv = ffmpeg_utils.has_qsv()
+
+        # Obter o codificador com base no hardware detectado
         encoder_name, _ = ffmpeg_utils.get_video_encoder()
 
-        if has_nvenc:
-            print("NVENC detectado! Usando aceleração de hardware NVIDIA.")
+        # Exibir informações sobre o hardware e codificador
+        print(f"Codificadores disponíveis - NVIDIA: {has_nvenc}, AMD: {has_amf}, Intel: {has_qsv}")
+        print(f"Codificador selecionado: {encoder_name}")
+
+        if gpu_vendor == "amd" and has_amf:
+            print("GPU AMD detectada! Usando aceleração de hardware AMD.")
+        elif gpu_vendor == "nvidia" and has_nvenc:
+            print("GPU NVIDIA detectada! Usando aceleração de hardware NVIDIA.")
+        elif gpu_vendor == "intel" and has_qsv:
+            print("GPU Intel detectada! Usando aceleração de hardware Intel.")
         elif has_amf:
             print("AMF detectado! Usando aceleração de hardware AMD.")
+        elif has_nvenc:
+            print("NVENC detectado! Usando aceleração de hardware NVIDIA.")
         elif has_qsv:
             print("QuickSync detectado! Usando aceleração de hardware Intel.")
         else:
@@ -1077,12 +1106,23 @@ class VideoCutterApp(QMainWindow):
         # Informar a duração dos vídeos
         self.log(f"Duração dos vídeos: entre {min_duration} e {max_duration} segundos")
 
+        # Detectar o fabricante da GPU
+        gpu_vendor = ffmpeg_utils.detect_gpu_vendor()
+
         # Mostrar informações sobre o codificador
         encoder_name, _ = ffmpeg_utils.get_video_encoder()
-        if encoder_name == "h264_nvenc":
-            self.log("- Codificador: NVIDIA NVENC (aceleração de hardware)")
+
+        # Exibir informações sobre o hardware e codificador
+        if gpu_vendor == "amd" and encoder_name == "h264_amf":
+            self.log("- Codificador: AMD AMF (aceleração de hardware AMD)")
+        elif gpu_vendor == "nvidia" and encoder_name == "h264_nvenc":
+            self.log("- Codificador: NVIDIA NVENC (aceleração de hardware NVIDIA)")
+        elif gpu_vendor == "intel" and encoder_name == "h264_qsv":
+            self.log("- Codificador: Intel QuickSync (aceleração de hardware Intel)")
         elif encoder_name == "h264_amf":
             self.log("- Codificador: AMD AMF (aceleração de hardware)")
+        elif encoder_name == "h264_nvenc":
+            self.log("- Codificador: NVIDIA NVENC (aceleração de hardware)")
         elif encoder_name == "h264_qsv":
             self.log("- Codificador: Intel QuickSync (aceleração de hardware)")
         else:

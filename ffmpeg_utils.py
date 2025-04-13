@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import tempfile
 import re
+import platform
 
 def get_base_dir():
     """Retorna o diretório base da aplicação, considerando se estamos em um executável PyInstaller ou não"""
@@ -54,6 +55,42 @@ def check_ffmpeg():
     ffprobe_path = get_ffprobe_path()
 
     return ffmpeg_path is not None and ffprobe_path is not None
+
+def detect_gpu_vendor():
+    """Detecta o fabricante da GPU principal do sistema"""
+    if platform.system() != 'Windows':
+        return "unknown"
+
+    try:
+        # Usar o comando WMIC para obter informações sobre a GPU
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        # Executar o comando WMIC para obter informações sobre a GPU
+        result = subprocess.run(
+            ["wmic", "path", "win32_VideoController", "get", "name"],
+            capture_output=True,
+            text=True,
+            startupinfo=startupinfo
+        )
+
+        if result.returncode == 0:
+            output = result.stdout.lower()
+
+            # Verificar o fabricante com base no nome da GPU
+            if "nvidia" in output:
+                return "nvidia"
+            elif "amd" in output or "radeon" in output or "ati" in output:
+                return "amd"
+            elif "intel" in output:
+                return "intel"
+    except Exception as e:
+        print(f"Erro ao detectar GPU: {str(e)}")
+
+    return "unknown"
 
 def has_nvenc():
     """Verifica se o sistema tem suporte a NVENC (NVIDIA)"""
@@ -168,10 +205,16 @@ def has_qsv():
 
 def get_video_encoder():
     """Retorna o melhor codificador de vídeo disponível"""
+    # Detectar o fabricante da GPU
+    gpu_vendor = detect_gpu_vendor()
+    print(f"Fabricante da GPU detectado: {gpu_vendor}")
+
     # Verificar quais aceleradores de hardware estão disponíveis
     nvenc_available = has_nvenc()  # NVIDIA
     amf_available = has_amf()      # AMD
     qsv_available = has_qsv()      # Intel
+
+    print(f"Codificadores disponíveis - NVIDIA: {nvenc_available}, AMD: {amf_available}, Intel: {qsv_available}")
 
     # Verificar se o libx264 está disponível (codificador por software)
     ffmpeg_path = get_ffmpeg_path()
@@ -197,15 +240,27 @@ def get_video_encoder():
         except Exception:
             libx264_available = False
 
-    # Prioridade: NVENC > AMF > QSV > libx264 > cópia
-    if nvenc_available:
+    # Priorizar o codificador com base no fabricante da GPU
+    if gpu_vendor == "amd" and amf_available:
+        print("Usando codificador AMD AMF (hardware)")
+        return "h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak", "-qp_i", "18", "-qp_p", "20",
+                "-b:v", "15M", "-profile:v", "high"]
+    elif gpu_vendor == "nvidia" and nvenc_available:
         print("Usando codificador NVIDIA NVENC (hardware)")
         return "h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p7", "-rc:v", "vbr", "-cq", "18",
                 "-b:v", "15M", "-profile:v", "high", "-level:v", "4.2"]
+    elif gpu_vendor == "intel" and qsv_available:
+        print("Usando codificador Intel QuickSync (hardware)")
+        return "h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-b:v", "15M", "-profile:v", "high"]
+    # Fallback para qualquer acelerador disponível se o fabricante não for detectado
     elif amf_available:
         print("Usando codificador AMD AMF (hardware)")
         return "h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak", "-qp_i", "18", "-qp_p", "20",
                 "-b:v", "15M", "-profile:v", "high"]
+    elif nvenc_available:
+        print("Usando codificador NVIDIA NVENC (hardware)")
+        return "h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p7", "-rc:v", "vbr", "-cq", "18",
+                "-b:v", "15M", "-profile:v", "high", "-level:v", "4.2"]
     elif qsv_available:
         print("Usando codificador Intel QuickSync (hardware)")
         return "h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-b:v", "15M", "-profile:v", "high"]
