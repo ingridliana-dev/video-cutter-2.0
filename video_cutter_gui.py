@@ -27,7 +27,7 @@ except Exception as e:
     traceback.print_exc()
 
 class VideoCutterWorker(QThread):
-    progress_signal = pyqtSignal(int)
+    progress_signal = pyqtSignal(int)  # Progresso geral
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
@@ -174,50 +174,8 @@ class VideoCutterWorker(QThread):
 
                 # Executar o comando FFmpeg
                 try:
-                    # Adicionar parâmetros para mostrar progresso
-                    ffmpeg_cmd.extend(["-progress", "pipe:1", "-nostats"])
-
                     # Iniciar o processo FFmpeg
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
-
-                    # Variáveis para acompanhar o progresso
-                    part_progress = 0
-                    part_weight = duration / total_duration * 100  # Peso desta parte no progresso total
-                    overall_progress = int((current_time - duration) / total_duration * 100)  # Progresso até esta parte
-
-                    # Criar uma thread para ler a saída do FFmpeg
-                    def read_output():
-                        while self.process.poll() is None and self.is_running:
-                            try:
-                                # Ler uma linha da saída
-                                line = self.process.stdout.readline().strip()
-                                if line:
-                                    # Procurar por informações de progresso
-                                    if line.startswith("out_time="):
-                                        try:
-                                            # Extrair o tempo atual de processamento (formato HH:MM:SS.MS)
-                                            time_str = line.split("=")[1]
-                                            h, m, s = time_str.split(":")
-                                            time_s = float(h) * 3600 + float(m) * 60 + float(s)
-
-                                            # Calcular o progresso desta parte (0-100%)
-                                            part_progress = min(100, int((time_s / duration) * 100))
-
-                                            # Calcular o progresso geral
-                                            current_overall = overall_progress + (part_progress * part_weight / 100)
-
-                                            # Emitir o sinal de progresso
-                                            self.progress_signal.emit(int(current_overall))
-                                        except (ValueError, IndexError):
-                                            pass
-                            except Exception:
-                                # Erro ao ler a saída, aguardar um pouco
-                                time.sleep(0.1)
-
-                    # Iniciar a thread de leitura
-                    read_thread = threading.Thread(target=read_output)
-                    read_thread.daemon = True
-                    read_thread.start()
 
                     # Aguardar a conclusão do processo
                     stdout, stderr = self.process.communicate()
@@ -236,6 +194,10 @@ class VideoCutterWorker(QThread):
                 current_time += duration
                 part_number += 1
                 total_parts += 1
+
+                # Atualizar o progresso
+                progress = int((current_time / total_duration) * 100)
+                self.progress_signal.emit(progress)
 
                 # Verificar se o processo foi cancelado
                 if not self.is_running:
@@ -459,9 +421,15 @@ class VideoCutterApp(QMainWindow):
         main_layout.addWidget(log_group)
 
         # Barra de progresso
+        progress_group = QGroupBox("Progresso")
+        progress_layout = QVBoxLayout()
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        main_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.progress_bar)
+
+        progress_group.setLayout(progress_layout)
+        main_layout.addWidget(progress_group)
 
         # Botões de ação
         button_layout = QHBoxLayout()
