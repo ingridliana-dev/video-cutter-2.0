@@ -1,16 +1,41 @@
-# Ignorar tudo
-*
+# Ambiente virtual
+venv/
 
-# Exceto estes arquivos
-!.gitignore
-!README.md
-!cortar_videos.ps1
-!download_ffmpeg.py
-!executar_corte.bat
-!executar_video_cutter.bat
-!ffmpeg_utils.py
-!icon_info.txt
-!simple_test.py
-!test_pyqt.py
-!video_cutter.spec
-!video_cutter_gui.py
+# Arquivos Python compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de distribuição
+dist/
+build/
+*.egg-info/
+*.zip
+
+# Arquivos de ambiente
+.env
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Arquivos de mídia (para não sobrecarregar o repositório)
+*.mp4
+*.avi
+*.mkv
+*.png
+*.jpg
+*.jpeg
+
+# Arquivos grandes
+ffmpeg.zip
+
+# Opcional: descomentar se não quiser incluir a pasta ffmpeg no repositório
+# ffmpeg/
+
+# Logs
+*.log
+
+# Arquivos específicos do sistema
+.DS_Store
+Thumbs.db
