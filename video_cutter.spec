@@ -55,5 +55,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='app_icon.ico',  # Descomente esta linha quando tiver um ícone
+    icon='scissors_icon.ico',  # Ícone de tesoura para representar corte
 )
