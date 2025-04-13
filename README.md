@@ -81,9 +81,9 @@ O aplicativo detecta automaticamente a resolução de todos os arquivos e realiz
 
 Os arquivos de saída serão salvos na pasta especificada (ou na mesma pasta do vídeo de entrada, se nenhuma for especificada) com o nome no formato:
 
-`[Prefixo][Número].mp4`
+`[Prefixo] [Número].mp4`
 
-Por exemplo: `Assassins Creed Shadows Parte 101.mp4`
+Por exemplo: `Video Vertical Parte 101.mp4`
 
 ## Baseado no Script Original
 
