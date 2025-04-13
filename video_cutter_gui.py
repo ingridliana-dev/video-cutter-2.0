@@ -146,7 +146,7 @@ class VideoCutterWorker(QThread):
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
                 # Inicializar a área de status com uma mensagem informativa
-                self.status_signal.emit("Iniciando processamento...\nAs informações de progresso aparecerão aqui em tempo real.")
+                self.status_signal.emit("Iniciando processamento...\nCapturando informações do FFmpeg...")
 
                 # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
@@ -178,7 +178,8 @@ class VideoCutterWorker(QThread):
                 # Executar o comando FFmpeg
                 try:
                     # Adicionar parâmetros para mostrar informações detalhadas como no terminal original
-                    # Não adicionamos parâmetros extras para manter a saída original do FFmpeg
+                    # Adicionar parâmetros para garantir que o FFmpeg gere informações de progresso detalhadas
+                    ffmpeg_cmd.extend(["-stats", "-v", "info"])
 
                     # Iniciar o processo FFmpeg
                     self.process = ffmpeg_utils.run_ffmpeg_command(ffmpeg_cmd)
@@ -197,7 +198,14 @@ class VideoCutterWorker(QThread):
                         while self.process.poll() is None and self.is_running:
                             try:
                                 # Ler uma linha da saída de erro (onde o FFmpeg escreve o progresso)
-                                line = self.process.stderr.readline().strip().decode('utf-8', errors='ignore')
+                                # Usar read(1) para ler byte a byte e garantir que a saída seja em tempo real
+                                line_bytes = b''
+                                while True:
+                                    byte = self.process.stderr.read(1)
+                                    if not byte or byte == b'\n':
+                                        break
+                                    line_bytes += byte
+                                line = line_bytes.strip().decode('utf-8', errors='ignore')
                                 if line:
                                     # Capturar todas as linhas relevantes para exibição na área de status
                                     # Linhas de progresso (começam com "frame=")
@@ -213,7 +221,7 @@ class VideoCutterWorker(QThread):
                                         # Atualizar a área de status com as últimas linhas de progresso
                                         status_text = "\n".join(progress_lines)
                                         self.status_signal.emit(status_text)
-                                        print(f"Enviando status: {len(progress_lines)} linhas, linha atual: {line}")  # Debug mais detalhado
+                                        print(f"Enviando status (frame): {line}")  # Debug mais detalhado
 
                                         # Exibir a linha de progresso no log (a cada 10 frames para não sobrecarregar)
                                         if frame_counter % 10 == 0:
@@ -221,7 +229,7 @@ class VideoCutterWorker(QThread):
                                             # Forçar a atualização da interface
                                             QApplication.processEvents()
                                     # Mostrar informações do encoder e outras informações relevantes
-                                    elif "encoder" in line or "Stream mapping" in line or "Press" in line or "size=" in line or "time=" in line or "bitrate=" in line:
+                                    elif "encoder" in line or "Stream mapping" in line or "Press" in line or "size=" in line or "time=" in line or "bitrate=" in line or "fps=" in line or "speed=" in line:
                                         # Adicionar à lista de progresso para exibir na área de status
                                         progress_lines.append(line)
                                         if len(progress_lines) > 6:
@@ -230,7 +238,7 @@ class VideoCutterWorker(QThread):
                                         # Atualizar a área de status
                                         status_text = "\n".join(progress_lines)
                                         self.status_signal.emit(status_text)
-                                        print(f"Enviando status (encoder): {line}")  # Debug
+                                        print(f"Enviando status (info): {line}")  # Debug
 
                                         # Também adicionar ao log
                                         self.log_signal.emit(line)

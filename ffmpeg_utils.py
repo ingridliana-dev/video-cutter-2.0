@@ -161,9 +161,9 @@ def run_ffmpeg_command(cmd):
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        universal_newlines=True,
+        universal_newlines=False,  # Usar bytes para evitar problemas de codificação
         startupinfo=startupinfo,
-        bufsize=1  # Buffering linha a linha
+        bufsize=0  # Sem buffering para garantir saída em tempo real
     )
 
 def run_ffprobe_command(cmd):
