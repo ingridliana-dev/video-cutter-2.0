@@ -145,9 +145,8 @@ class VideoCutterWorker(QThread):
                 # Verificar qual codificador usar (hardware ou software)
                 encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
                 self.log_signal.emit(f"Usando codificador de vídeo: {encoder_name}")
-                # Não inicializar a área de status com nenhum exemplo
-                # Deixar vazio até que a codificação comece
-                self.status_signal.emit("")
+                # Inicializar a área de status com uma mensagem informativa
+                self.status_signal.emit("Iniciando processamento...\nAs informações de progresso aparecerão aqui em tempo real.")
 
                 # Configurar parâmetros base do comando
                 ffmpeg_cmd = [
@@ -200,7 +199,8 @@ class VideoCutterWorker(QThread):
                                 # Ler uma linha da saída de erro (onde o FFmpeg escreve o progresso)
                                 line = self.process.stderr.readline().strip().decode('utf-8', errors='ignore')
                                 if line:
-                                    # Mostrar todas as linhas que começam com "frame=" (informações de progresso)
+                                    # Capturar todas as linhas relevantes para exibição na área de status
+                                    # Linhas de progresso (começam com "frame=")
                                     if line.startswith("frame="):
                                         frame_counter += 1
                                         last_progress_line = line
@@ -213,15 +213,26 @@ class VideoCutterWorker(QThread):
                                         # Atualizar a área de status com as últimas linhas de progresso
                                         status_text = "\n".join(progress_lines)
                                         self.status_signal.emit(status_text)
-                                        print(f"Enviando status: {len(progress_lines)} linhas")  # Debug
+                                        print(f"Enviando status: {len(progress_lines)} linhas, linha atual: {line}")  # Debug mais detalhado
 
                                         # Exibir a linha de progresso no log (a cada 10 frames para não sobrecarregar)
                                         if frame_counter % 10 == 0:
                                             self.log_signal.emit(line)
                                             # Forçar a atualização da interface
                                             QApplication.processEvents()
-                                    # Mostrar informações do encoder
-                                    elif "encoder" in line:
+                                    # Mostrar informações do encoder e outras informações relevantes
+                                    elif "encoder" in line or "Stream mapping" in line or "Press" in line or "size=" in line or "time=" in line or "bitrate=" in line:
+                                        # Adicionar à lista de progresso para exibir na área de status
+                                        progress_lines.append(line)
+                                        if len(progress_lines) > 6:
+                                            progress_lines.pop(0)  # Remover a linha mais antiga
+
+                                        # Atualizar a área de status
+                                        status_text = "\n".join(progress_lines)
+                                        self.status_signal.emit(status_text)
+                                        print(f"Enviando status (encoder): {line}")  # Debug
+
+                                        # Também adicionar ao log
                                         self.log_signal.emit(line)
                                         # Forçar a atualização da interface
                                         QApplication.processEvents()
@@ -586,12 +597,13 @@ class VideoCutterApp(QMainWindow):
 
     def update_status(self, message):
         """Atualiza a área de status da codificação"""
-        print(f"Atualizando status: {message}")  # Debug
-        self.status_area.setText(message)  # Define o texto diretamente
-        # Rola para o final
-        self.status_area.verticalScrollBar().setValue(self.status_area.verticalScrollBar().maximum())
-        # Força a atualização da interface
-        QApplication.processEvents()
+        print(f"Atualizando status: {message[:50]}...")  # Debug (mostra apenas os primeiros 50 caracteres)
+        if message.strip():  # Só atualiza se a mensagem não estiver vazia
+            self.status_area.setText(message)  # Define o texto diretamente
+            # Rola para o final
+            self.status_area.verticalScrollBar().setValue(self.status_area.verticalScrollBar().maximum())
+            # Força a atualização da interface
+            QApplication.processEvents()
 
     def start_cutting(self):
         """Inicia o processo de corte de vídeo"""
