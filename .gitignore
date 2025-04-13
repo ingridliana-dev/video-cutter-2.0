@@ -1,0 +1,16 @@
+# Ignorar tudo
+*
+
+# Exceto estes arquivos
+!.gitignore
+!README.md
+!cortar_videos.ps1
+!download_ffmpeg.py
+!executar_corte.bat
+!executar_video_cutter.bat
+!ffmpeg_utils.py
+!icon_info.txt
+!simple_test.py
+!test_pyqt.py
+!video_cutter.spec
+!video_cutter_gui.py
