@@ -31,17 +31,18 @@ Para desenvolvimento:
 
 ### Versão Executável
 
-1. Baixe a pasta `dist` completa (contém o executável e o FFmpeg)
-2. Execute o arquivo `Video Cutter.exe` diretamente da pasta
-3. Configure os parâmetros na interface:
+1. Baixe a versão executável completa da seção [Releases](https://github.com/ingridliana-dev/video-cutter-2.0/releases) do GitHub
+2. Extraia o arquivo ZIP baixado
+3. Execute o arquivo `Video Cutter.exe` diretamente da pasta extraída
+4. Configure os parâmetros na interface:
    - Selecione o vídeo de entrada
    - Selecione a imagem de capa
    - Selecione o vídeo do selo
    - Configure o prefixo de saída, índice inicial e durações
    - Opcionalmente, selecione uma pasta de saída diferente
-4. Configure as opções de Chroma Key para o selo (cor, similaridade e suavidade)
-5. Clique em "Iniciar Corte" para começar o processamento
-6. Use o botão "Abrir Pasta" para acessar diretamente a pasta onde os vídeos processados foram salvos
+5. Configure as opções de Chroma Key para o selo (cor, similaridade e suavidade)
+6. Clique em "Iniciar Corte" para começar o processamento
+7. Use o botão "Abrir Pasta" para acessar diretamente a pasta onde os vídeos processados foram salvos
 
 **Importante**: Não remova a pasta `ffmpeg` que está junto com o executável, pois ela contém os componentes necessários para o funcionamento do programa.
 
@@ -84,6 +85,18 @@ Os arquivos de saída serão salvos na pasta especificada (ou na mesma pasta do 
 `[Prefixo] [Número].mp4`
 
 Por exemplo: `Video Vertical Parte 101.mp4`
+
+## Distribuição do Software
+
+Devido às limitações de tamanho de arquivo do GitHub (100 MB por arquivo), o executável e os arquivos do FFmpeg não podem ser armazenados diretamente no repositório. Em vez disso, eles são disponibilizados através da seção [Releases](https://github.com/ingridliana-dev/video-cutter-2.0/releases) do GitHub.
+
+Para criar uma nova release:
+
+1. Compacte a pasta `dist` completa em um arquivo ZIP
+2. Acesse a página do repositório no GitHub
+3. Clique na seção "Releases" no lado direito
+4. Clique em "Draft a new release"
+5. Preencha as informações da versão e faça upload do arquivo ZIP
 
 ## Baseado no Script Original
 
