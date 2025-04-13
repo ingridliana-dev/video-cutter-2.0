@@ -8,6 +8,7 @@ __pycache__/
 
 # Arquivos de distribuição
 dist/
+!dist/README.md
 build/
 *.egg-info/
 

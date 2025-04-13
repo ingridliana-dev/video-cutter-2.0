@@ -32,19 +32,26 @@ Para desenvolvimento:
 ### Versão Executável
 
 1. Baixe a pasta `dist` completa (contém o executável e o FFmpeg)
-2. Execute o arquivo `instalar.bat` para criar um atalho na área de trabalho (opcional)
-3. Execute o arquivo `Video Cutter.exe`
-4. Configure os parâmetros na interface:
+2. Execute o arquivo `Video Cutter.exe` diretamente da pasta
+3. Configure os parâmetros na interface:
    - Selecione o vídeo de entrada
    - Selecione a imagem de capa
    - Selecione o vídeo do selo
    - Configure o prefixo de saída, índice inicial e durações
    - Opcionalmente, selecione uma pasta de saída diferente
-5. Configure as opções de Chroma Key para o selo (cor, similaridade e suavidade)
-6. Clique em "Iniciar Corte" para começar o processamento
-7. Use o botão "Abrir Pasta" para acessar diretamente a pasta onde os vídeos processados foram salvos
+4. Configure as opções de Chroma Key para o selo (cor, similaridade e suavidade)
+5. Clique em "Iniciar Corte" para começar o processamento
+6. Use o botão "Abrir Pasta" para acessar diretamente a pasta onde os vídeos processados foram salvos
 
 **Importante**: Não remova a pasta `ffmpeg` que está junto com o executável, pois ela contém os componentes necessários para o funcionamento do programa.
+
+### Recomendações para melhor desempenho
+
+- **Resolução dos arquivos**: Para obter os melhores resultados, use imagem de capa e vídeo de selo com a mesma resolução do vídeo que será cortado. Isso evita redimensionamento e mantém a qualidade original.
+
+- **Vídeos verticais**: Este programa é especialmente recomendado para cortes de vídeos verticais (formato 9:16, como 1080x1920), ideal para conteúdo de redes sociais como TikTok, Instagram Reels e YouTube Shorts.
+
+- **Chroma Key**: Para melhores resultados com o selo, use um fundo verde sólido (ou outra cor sólida) e ajuste os parâmetros de similaridade e suavidade para obter bordas limpas.
 
 ### Configurações de Chroma Key
 
