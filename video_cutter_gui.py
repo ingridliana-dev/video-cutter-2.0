@@ -21,7 +21,7 @@ try:
                                 QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
                                 QLineEdit, QSpinBox, QProgressBar, QTextEdit, QGroupBox,
                                 QMessageBox, QColorDialog, QDoubleSpinBox, QFrame, QGridLayout,
-                                QFormLayout, QComboBox, QCheckBox)
+                                QFormLayout, QComboBox, QCheckBox, QScrollArea)
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QProcess, QMutex
     from PyQt5.QtGui import QColor, QIcon
     print("PyQt5 importado com sucesso!")
@@ -899,11 +899,9 @@ class VideoCutterApp(QMainWindow):
     def initUI(self):
         # Configurar a janela principal
         self.setWindowTitle("Video Cutter")
-        self.setGeometry(100, 100, 530, 630)
-        # Definir tamanho fixo
-        self.setFixedSize(530, 630)
-        # Impedir maximização
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowMaximizeButtonHint)
+        self.setGeometry(100, 100, 600, 700)  # Aumentar o tamanho inicial da janela
+        # Permitir redimensionamento da janela
+        self.setMinimumSize(600, 500)  # Definir tamanho mínimo para evitar que a janela fique muito pequena
 
         # Definir o ícone da janela
         icon_path = "video-cutter-icone.png"
@@ -912,7 +910,14 @@ class VideoCutterApp(QMainWindow):
 
         # Widget central e layout principal
         central_widget = QWidget()
-        main_layout = QVBoxLayout(central_widget)
+
+        # Criar um scroll area para permitir rolagem
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)  # Permitir que o widget interno seja redimensionado
+
+        # Criar um widget para conter todos os elementos
+        scroll_content = QWidget()
+        main_layout = QVBoxLayout(scroll_content)
 
         # Grupo de arquivos
         file_group = QGroupBox("Arquivos")
@@ -974,7 +979,8 @@ class VideoCutterApp(QMainWindow):
         config_layout = QVBoxLayout()
 
         # Definir tamanho mínimo para o grupo de configurações
-        config_group.setMinimumWidth(500)  # Largura mínima para o grupo
+        config_group.setMinimumWidth(550)  # Largura mínima para o grupo
+        config_layout.setSpacing(10)  # Aumentar o espaçamento entre os elementos
 
         # Output prefix
         prefix_layout = QHBoxLayout()
@@ -991,25 +997,31 @@ class VideoCutterApp(QMainWindow):
         self.start_index = QSpinBox()
         self.start_index.setRange(1, 999)
         self.start_index.setValue(1)
+        self.start_index.setMinimumWidth(100)  # Definir largura mínima
         index_layout.addWidget(index_label)
         index_layout.addWidget(self.start_index)
         config_layout.addLayout(index_layout)
 
-        # Duration settings
-        duration_layout = QHBoxLayout()
+        # Duration settings - Dividir em dois layouts para evitar achatamento
+        min_duration_layout = QHBoxLayout()
         min_label = QLabel("Duração mínima (s):")
         self.min_duration = QSpinBox()
         self.min_duration.setRange(10, 300)
         self.min_duration.setValue(90)
+        self.min_duration.setMinimumWidth(100)  # Definir largura mínima
+        min_duration_layout.addWidget(min_label)
+        min_duration_layout.addWidget(self.min_duration)
+        config_layout.addLayout(min_duration_layout)
+
+        max_duration_layout = QHBoxLayout()
         max_label = QLabel("Duração máxima (s):")
         self.max_duration = QSpinBox()
         self.max_duration.setRange(10, 600)
         self.max_duration.setValue(130)
-        duration_layout.addWidget(min_label)
-        duration_layout.addWidget(self.min_duration)
-        duration_layout.addWidget(max_label)
-        duration_layout.addWidget(self.max_duration)
-        config_layout.addLayout(duration_layout)
+        self.max_duration.setMinimumWidth(100)  # Definir largura mínima
+        max_duration_layout.addWidget(max_label)
+        max_duration_layout.addWidget(self.max_duration)
+        config_layout.addLayout(max_duration_layout)
 
         # Perfil de velocidade
         speed_profile_layout = QHBoxLayout()
@@ -1017,6 +1029,7 @@ class VideoCutterApp(QMainWindow):
         self.speed_profile = QComboBox()
         self.speed_profile.addItems(["Rápido", "Balanceado", "Alta Qualidade"])
         self.speed_profile.setCurrentIndex(1)  # Balanceado como padrão
+        self.speed_profile.setMinimumWidth(150)  # Definir largura mínima
         self.speed_profile.setToolTip("Rápido: Prioriza velocidade sobre qualidade\nBalanceado: Equilíbrio entre velocidade e qualidade\nAlta Qualidade: Prioriza qualidade sobre velocidade")
         speed_profile_layout.addWidget(speed_profile_label)
         speed_profile_layout.addWidget(self.speed_profile)
@@ -1033,6 +1046,7 @@ class VideoCutterApp(QMainWindow):
         import multiprocessing
         default_workers = min(max(multiprocessing.cpu_count() - 1, 1), 4)
         self.parallel_count.setValue(default_workers)
+        self.parallel_count.setMinimumWidth(100)  # Definir largura mínima
         self.parallel_count.setToolTip("Número de partes do vídeo a serem processadas simultaneamente.\nUm valor maior pode aumentar a velocidade em sistemas com múltiplos núcleos.\nRecomendado: Número de núcleos da CPU - 1")
         advanced_layout.addWidget(parallel_label)
         advanced_layout.addWidget(self.parallel_count)
@@ -1164,6 +1178,14 @@ class VideoCutterApp(QMainWindow):
         button_layout.addWidget(self.open_folder_button)
 
         main_layout.addLayout(button_layout)
+
+        # Configurar o scroll area
+        scroll_area.setWidget(scroll_content)
+
+        # Criar layout para o widget central
+        central_layout = QVBoxLayout(central_widget)
+        central_layout.addWidget(scroll_area)
+        central_layout.setContentsMargins(0, 0, 0, 0)  # Remover margens
 
         # Definir o widget central
         self.setCentralWidget(central_widget)
