@@ -22,7 +22,7 @@ a = Analysis(
     ['video_cutter_gui.py'],
     pathex=[],
     binaries=ffmpeg_binaries,
-    datas=[("video-cutter-icone.png", ".")],  # Incluir o arquivo de ícone como dado
+    datas=[],  # Não precisamos incluir o ícone como dado, pois já está sendo usado como ícone do executável
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -8,6 +8,8 @@ import shutil
 import threading
 import select
 import io
+import queue
+import multiprocessing
 from pathlib import Path
 import ffmpeg_utils
 import re
@@ -19,24 +21,26 @@ try:
                                 QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
                                 QLineEdit, QSpinBox, QProgressBar, QTextEdit, QGroupBox,
                                 QMessageBox, QColorDialog, QDoubleSpinBox, QFrame, QGridLayout,
-                                QFormLayout)
-    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QProcess
+                                QFormLayout, QComboBox, QCheckBox)
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QProcess, QMutex
     from PyQt5.QtGui import QColor, QIcon
     print("PyQt5 importado com sucesso!")
 except Exception as e:
     print(f"Erro ao importar PyQt5: {e}")
     traceback.print_exc()
 
-class VideoCutterWorker(QThread):
-    progress_signal = pyqtSignal(float)  # Progresso geral (alterado para float para maior precisão)
+class ParallelProcessor(QThread):
+    """Classe que gerencia múltiplos workers para processamento paralelo"""
+    progress_signal = pyqtSignal(float)  # Progresso geral
     log_signal = pyqtSignal(str)
-    status_signal = pyqtSignal(str)  # Novo sinal para atualizar o status da codificação
+    status_signal = pyqtSignal(str)  # Status da codificação
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
 
     def __init__(self, input_file, image_file, selo_file, output_prefix, start_index,
                  min_duration, max_duration, output_directory=None,
-                 chroma_color="0x00d600", similarity=0.30, blend=0.35):
+                 chroma_color="0x00d600", similarity=0.30, blend=0.35, speed_profile="balanced",
+                 restart_interval=5, parallel_count=2):
         super().__init__()
         self.input_file = input_file
         self.image_file = image_file
@@ -49,19 +53,22 @@ class VideoCutterWorker(QThread):
         self.chroma_color = chroma_color
         self.similarity = similarity
         self.blend = blend
-        self.is_running = True
-        self.process = None
+        self.speed_profile = speed_profile
+        self.restart_interval = restart_interval
+        self.parallel_count = parallel_count
 
-        # Variáveis para controle de progresso (acessíveis pela interface)
-        self.duration = 0  # Duração da parte atual sendo processada
-        self.total_duration = 0  # Duração total do vídeo
-        self.current_time = 0  # Tempo atual de processamento
+        self.is_running = True
+        self.workers = []
+        self.active_workers = 0
+        self.total_parts = 0
+        self.parts_completed = 0
+        self.total_duration = 0
+        self.segments = []
 
     def run(self):
         try:
-            # Inicializar o progresso em 0% no início do processamento
+            # Inicializar o progresso em 0%
             self.progress_signal.emit(0.0)
-            print(f"[{time.strftime('%H:%M:%S')}] INICIANDO PROCESSAMENTO - PROGRESSO: 0.0%")
 
             # Verificar se os arquivos existem
             if not os.path.isfile(self.input_file):
@@ -74,6 +81,244 @@ class VideoCutterWorker(QThread):
 
             if not os.path.isfile(self.selo_file):
                 self.error_signal.emit(f"Arquivo de selo não encontrado: {self.selo_file}")
+                return
+
+            # Obter a duração total do vídeo
+            self.total_duration = self.get_video_duration(self.input_file)
+            if self.total_duration <= 0:
+                self.error_signal.emit("Não foi possível obter a duração do vídeo.")
+                return
+
+            # Dividir o vídeo em segmentos
+            self.segments = self.create_segments()
+            self.total_parts = len(self.segments)
+
+            if self.total_parts == 0:
+                self.error_signal.emit("Não foi possível dividir o vídeo em segmentos.")
+                return
+
+            self.log_signal.emit(f"Vídeo dividido em {self.total_parts} segmentos para processamento paralelo.")
+
+            # Iniciar o processamento paralelo
+            self.process_segments_parallel()
+
+            # Verificar se o processo foi cancelado
+            if not self.is_running:
+                self.log_signal.emit("Processo cancelado pelo usuário.")
+                return
+
+            # Finalizar o processamento
+            if self.is_running:
+                self.log_signal.emit(f"Processamento concluído com sucesso! {self.total_parts} vídeos foram gerados.")
+                self.progress_signal.emit(100)
+                self.finished_signal.emit()
+
+        except Exception as e:
+            self.error_signal.emit(f"Erro durante o processamento: {str(e)}")
+            traceback.print_exc()
+
+    def create_segments(self):
+        """Divide o vídeo em segmentos para processamento paralelo"""
+        segments = []
+        current_time = 0
+        part_number = self.start_index
+
+        # Dividir o vídeo em segmentos com duração aleatória
+        while current_time < self.total_duration:
+            # Gerar uma duração aleatória entre min_duration e max_duration
+            duration = random.randint(self.min_duration, self.max_duration)
+
+            # Garantir que não ultrapasse a duração total do vídeo
+            if current_time + duration > self.total_duration:
+                duration = self.total_duration - current_time
+
+            # Adicionar o segmento apenas se tiver pelo menos 10 segundos
+            if duration >= 10:
+                segments.append({
+                    'start_time': current_time,
+                    'duration': duration,
+                    'part_number': part_number
+                })
+                part_number += 1
+
+            current_time += duration
+
+            # Se o tempo restante for menor que a duração mínima, ajustar o último segmento
+            if self.total_duration - current_time < self.min_duration and self.total_duration - current_time > 0:
+                # Ajustar o último segmento para incluir o tempo restante
+                if segments:
+                    last_segment = segments[-1]
+                    last_segment['duration'] += self.total_duration - current_time
+                current_time = self.total_duration
+
+        return segments
+
+    def process_segments_parallel(self):
+        """Processa os segmentos em paralelo"""
+        # Fila de segmentos a serem processados
+        segment_queue = queue.Queue()
+        for segment in self.segments:
+            segment_queue.put(segment)
+
+        # Criar e iniciar os workers
+        self.workers = []
+        self.active_workers = 0
+        self.parts_completed = 0
+
+        # Mutex para acesso seguro às variáveis compartilhadas
+        self.mutex = QMutex()
+
+        # Iniciar o número especificado de workers
+        for i in range(min(self.parallel_count, len(self.segments))):
+            if not self.is_running:
+                break
+
+            if not segment_queue.empty():
+                segment = segment_queue.get()
+                worker = VideoCutterWorker(
+                    self.input_file, self.image_file, self.selo_file, self.output_prefix,
+                    segment['part_number'], self.min_duration, self.max_duration, self.output_directory,
+                    self.chroma_color, self.similarity, self.blend, self.speed_profile,
+                    self.restart_interval, segment['start_time'], segment['duration']
+                )
+
+                # Conectar os sinais do worker
+                worker.log_signal.connect(self.log_signal.emit)
+                worker.status_signal.connect(self.status_signal.emit)
+                worker.finished_signal.connect(lambda w=worker, q=segment_queue: self.worker_finished(w, q))
+                worker.error_signal.connect(self.worker_error)
+
+                # Iniciar o worker
+                worker.start()
+                self.workers.append(worker)
+                self.active_workers += 1
+
+                self.log_signal.emit(f"Iniciando processamento paralelo da parte {segment['part_number']} (worker {i+1})")
+
+        # Aguardar a conclusão de todos os workers
+        while self.active_workers > 0 and self.is_running:
+            QApplication.processEvents()
+            time.sleep(0.1)
+
+    def worker_finished(self, worker, segment_queue):
+        """Chamado quando um worker termina o processamento"""
+        # Incrementar o contador de partes concluídas
+        self.mutex.lock()
+        self.parts_completed += 1
+        progress = (self.parts_completed / self.total_parts) * 100
+        self.progress_signal.emit(progress)
+        self.mutex.unlock()
+
+        # Remover o worker da lista
+        if worker in self.workers:
+            self.workers.remove(worker)
+
+        # Verificar se há mais segmentos para processar
+        if not segment_queue.empty() and self.is_running:
+            segment = segment_queue.get()
+            new_worker = VideoCutterWorker(
+                self.input_file, self.image_file, self.selo_file, self.output_prefix,
+                segment['part_number'], self.min_duration, self.max_duration, self.output_directory,
+                self.chroma_color, self.similarity, self.blend, self.speed_profile,
+                self.restart_interval, segment['start_time'], segment['duration']
+            )
+
+            # Conectar os sinais do worker
+            new_worker.log_signal.connect(self.log_signal.emit)
+            new_worker.status_signal.connect(self.status_signal.emit)
+            new_worker.finished_signal.connect(lambda w=new_worker, q=segment_queue: self.worker_finished(w, q))
+            new_worker.error_signal.connect(self.worker_error)
+
+            # Iniciar o worker
+            new_worker.start()
+            self.workers.append(new_worker)
+
+            self.log_signal.emit(f"Iniciando processamento da parte {segment['part_number']}")
+        else:
+            # Decrementar o contador de workers ativos
+            self.mutex.lock()
+            self.active_workers -= 1
+            self.mutex.unlock()
+
+    def worker_error(self, error_message):
+        """Chamado quando ocorre um erro em um worker"""
+        self.error_signal.emit(error_message)
+
+    def stop(self):
+        """Para o processamento de todos os workers"""
+        self.is_running = False
+        for worker in self.workers:
+            worker.stop()
+
+    def get_video_duration(self, video_file):
+        """Obtém a duração de um arquivo de vídeo usando FFmpeg"""
+        try:
+            cmd = ["ffprobe", "-i", video_file, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"]
+            result = ffmpeg_utils.run_ffprobe_command(cmd)
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+            return -1
+        except Exception as e:
+            self.log_signal.emit(f"Erro ao obter duração do vídeo: {str(e)}")
+            return -1
+
+class VideoCutterWorker(QThread):
+    progress_signal = pyqtSignal(float)  # Progresso geral (alterado para float para maior precisão)
+    log_signal = pyqtSignal(str)
+    status_signal = pyqtSignal(str)  # Novo sinal para atualizar o status da codificação
+    finished_signal = pyqtSignal()
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, input_file, image_file, selo_file, output_prefix, part_number,
+                 min_duration, max_duration, output_directory=None,
+                 chroma_color="0x00d600", similarity=0.30, blend=0.35, speed_profile="balanced",
+                 restart_interval=5, start_time=None, duration=None):
+        super().__init__()
+        self.input_file = input_file
+        self.image_file = image_file
+        self.selo_file = selo_file
+        self.output_prefix = output_prefix
+        self.part_number = part_number
+        self.min_duration = min_duration
+        self.max_duration = max_duration
+        self.output_directory = output_directory
+        self.chroma_color = chroma_color
+        self.similarity = similarity
+        self.blend = blend
+        self.speed_profile = speed_profile
+        self.restart_interval = restart_interval  # Número de partes após o qual o processo FFmpeg será reiniciado
+        self.parts_processed = 0  # Contador de partes processadas desde a última reinicialização
+        self.start_time = start_time  # Tempo de início do segmento a ser processado
+        self.segment_duration = duration  # Duração do segmento a ser processado
+        self.is_running = True
+        self.process = None
+
+        # Variáveis para controle de progresso (acessíveis pela interface)
+        self.current_duration = 0  # Duração da parte atual sendo processada
+        self.total_duration = 0  # Duração total do vídeo
+        self.current_time = 0  # Tempo atual de processamento
+
+    def run(self):
+        try:
+            # Inicializar o progresso em 0% no início do processamento
+            self.progress_signal.emit(0.0)
+
+            # Verificar se os arquivos existem
+            if not os.path.isfile(self.input_file):
+                self.error_signal.emit(f"Arquivo de entrada não encontrado: {self.input_file}")
+                return
+
+            if not os.path.isfile(self.image_file):
+                self.error_signal.emit(f"Arquivo de imagem não encontrado: {self.image_file}")
+                return
+
+            if not os.path.isfile(self.selo_file):
+                self.error_signal.emit(f"Arquivo de selo não encontrado: {self.selo_file}")
+                return
+
+            # Verificar se temos um segmento específico para processar
+            if self.start_time is None or self.segment_duration is None:
+                self.error_signal.emit("Tempo de início ou duração do segmento não especificados.")
                 return
 
             # Definir diretório de saída
@@ -138,26 +383,16 @@ class VideoCutterWorker(QThread):
             if resolution_info['selo_needs_resize']:
                 self.log_signal.emit("O vídeo do selo será redimensionado para corresponder à resolução do vídeo.")
 
-            # Inicializar o tempo atual e o número da parte
-            current_time = 0
-            part_number = self.start_index
-            total_parts = 0
+            # Usar o tempo de início e duração especificados para o segmento
+            current_time = self.start_time
+            part_number = self.part_number
+            duration = self.segment_duration
 
             # Enviar progresso inicial
             self.progress_signal.emit(0.0)
-            print(f"[{time.strftime('%H:%M:%S')}] PROGRESSO INICIAL: 0.0%")
 
-            # Calcular o número total estimado de partes para a barra de progresso
-            avg_duration = (self.min_duration + self.max_duration) / 2
-            estimated_parts = int(total_duration / avg_duration) + 1
-
-            while current_time < total_duration and self.is_running:
-                # Gerar duração aleatória entre os limites definidos
-                duration = random.randint(self.min_duration, self.max_duration)
-
-                # Se a duração ultrapassar o fim do vídeo, ajusta para terminar no tempo total
-                if current_time + duration > total_duration:
-                    duration = total_duration - current_time
+            # Processar apenas o segmento específico
+            if self.is_running:
 
                 # Armazenar a duração da parte atual para uso posterior
                 self.duration = duration
@@ -220,16 +455,16 @@ class VideoCutterWorker(QThread):
 
                 filter_complex_str = "".join(filter_complex)
 
-                # Verificar qual codificador usar (hardware ou software)
-                encoder_name, encoder_params = ffmpeg_utils.get_video_encoder()
+                # Verificar qual codificador usar (hardware ou software) com o perfil de velocidade selecionado
+                encoder_name, encoder_params = ffmpeg_utils.get_video_encoder(self.speed_profile)
                 if encoder_name == "h264_nvenc":
-                    self.log_signal.emit("Usando aceleração de hardware NVIDIA para codificação de vídeo")
+                    self.log_signal.emit(f"Usando aceleração de hardware NVIDIA para codificação de vídeo (perfil: {self.speed_profile})")
                 elif encoder_name == "h264_amf":
-                    self.log_signal.emit("Usando aceleração de hardware AMD para codificação de vídeo")
+                    self.log_signal.emit(f"Usando aceleração de hardware AMD para codificação de vídeo (perfil: {self.speed_profile})")
                 elif encoder_name == "h264_qsv":
-                    self.log_signal.emit("Usando aceleração de hardware Intel QuickSync para codificação de vídeo")
+                    self.log_signal.emit(f"Usando aceleração de hardware Intel QuickSync para codificação de vídeo (perfil: {self.speed_profile})")
                 else:
-                    self.log_signal.emit(f"Usando codificador de vídeo por software: {encoder_name}")
+                    self.log_signal.emit(f"Usando codificador de vídeo por software: {encoder_name} (perfil: {self.speed_profile})")
                 # Inicializar a área de status com uma mensagem vazia
                 # A área será preenchida com informações reais de codificação quando o processo começar
                 self.status_signal.emit("")
@@ -495,29 +730,34 @@ class VideoCutterWorker(QThread):
                         self.log_signal.emit(f"Erro ao processar parte {part_number}. Verifique o vídeo de entrada e tente novamente.")
                     else:
                         self.log_signal.emit(f"Parte {part_number} processada e salva com sucesso!")
+                        # Incrementar o contador de partes processadas
+                        self.parts_processed += 1
+
+                        # Verificar se é hora de reiniciar o processo FFmpeg para manter a velocidade
+                        if self.parts_processed >= self.restart_interval and current_time < total_duration - 10:
+                            self.log_signal.emit(f"Reiniciando o processo FFmpeg para otimizar a velocidade após {self.parts_processed} partes...")
+                            self.parts_processed = 0  # Resetar o contador
+                            # Liberar recursos do processo atual
+                            if self.process:
+                                try:
+                                    self.process.terminate()
+                                    self.process = None
+                                    # Pequena pausa para garantir que os recursos sejam liberados
+                                    time.sleep(1)
+                                except Exception as e:
+                                    print(f"Erro ao reiniciar processo: {str(e)}")
                 except Exception as e:
                     self.log_signal.emit(f"Erro ao executar FFmpeg: {str(e)}")
-                    if not self.is_running:
-                        break
+                    # Não há loop aqui, então não podemos usar break
+                    return
 
-                # Atualizar o tempo atual e o número da parte
-                current_time += duration
-                part_number += 1
-                total_parts += 1
-
-                # Atualizar o progresso com maior precisão (usando float em vez de int)
-                progress = (current_time / total_duration) * 100
-                self.progress_signal.emit(progress)
-
-                # Verificar se o processo foi cancelado
-                if not self.is_running:
+                # Sinalizar que o processamento foi concluído
+                if self.is_running:
+                    self.log_signal.emit(f"Parte {part_number} processada com sucesso!")
+                    self.progress_signal.emit(100)
+                    self.finished_signal.emit()
+                else:
                     self.log_signal.emit("Processo cancelado pelo usuário.")
-                    break
-
-            if self.is_running:
-                self.log_signal.emit(f"Processamento concluído com sucesso! {total_parts} vídeos foram gerados.")
-                self.progress_signal.emit(100)
-                self.finished_signal.emit()
 
         except Exception as e:
             self.error_signal.emit(f"Erro durante o processamento: {str(e)}")
@@ -770,6 +1010,36 @@ class VideoCutterApp(QMainWindow):
         duration_layout.addWidget(max_label)
         duration_layout.addWidget(self.max_duration)
         config_layout.addLayout(duration_layout)
+
+        # Perfil de velocidade
+        speed_profile_layout = QHBoxLayout()
+        speed_profile_label = QLabel("Perfil de velocidade:")
+        self.speed_profile = QComboBox()
+        self.speed_profile.addItems(["Rápido", "Balanceado", "Alta Qualidade"])
+        self.speed_profile.setCurrentIndex(1)  # Balanceado como padrão
+        self.speed_profile.setToolTip("Rápido: Prioriza velocidade sobre qualidade\nBalanceado: Equilíbrio entre velocidade e qualidade\nAlta Qualidade: Prioriza qualidade sobre velocidade")
+        speed_profile_layout.addWidget(speed_profile_label)
+        speed_profile_layout.addWidget(self.speed_profile)
+        config_layout.addLayout(speed_profile_layout)
+
+        # Opções avançadas de otimização
+        advanced_layout = QHBoxLayout()
+
+        # Opção de processamento paralelo
+        parallel_label = QLabel("Processos paralelos:")
+        self.parallel_count = QSpinBox()
+        self.parallel_count.setRange(1, 8)  # Limitar a 8 processos paralelos para evitar sobrecarga
+        # Definir o valor padrão com base no número de núcleos da CPU (máximo 4)
+        import multiprocessing
+        default_workers = min(max(multiprocessing.cpu_count() - 1, 1), 4)
+        self.parallel_count.setValue(default_workers)
+        self.parallel_count.setToolTip("Número de partes do vídeo a serem processadas simultaneamente.\nUm valor maior pode aumentar a velocidade em sistemas com múltiplos núcleos.\nRecomendado: Número de núcleos da CPU - 1")
+        advanced_layout.addWidget(parallel_label)
+        advanced_layout.addWidget(self.parallel_count)
+
+        config_layout.addLayout(advanced_layout)
+
+
 
         config_group.setLayout(config_layout)
         main_layout.addWidget(config_group)
@@ -1106,11 +1376,23 @@ class VideoCutterApp(QMainWindow):
         # Informar a duração dos vídeos
         self.log(f"Duração dos vídeos: entre {min_duration} e {max_duration} segundos")
 
+        # Obter o perfil de velocidade selecionado
+        speed_profile_index = self.speed_profile.currentIndex()
+        if speed_profile_index == 0:
+            speed_profile = "fast"
+            self.log("- Perfil de velocidade: Rápido (prioriza velocidade sobre qualidade)")
+        elif speed_profile_index == 1:
+            speed_profile = "balanced"
+            self.log("- Perfil de velocidade: Balanceado (equilíbrio entre velocidade e qualidade)")
+        else:
+            speed_profile = "quality"
+            self.log("- Perfil de velocidade: Alta Qualidade (prioriza qualidade sobre velocidade)")
+
         # Detectar o fabricante da GPU
         gpu_vendor = ffmpeg_utils.detect_gpu_vendor()
 
         # Mostrar informações sobre o codificador
-        encoder_name, _ = ffmpeg_utils.get_video_encoder()
+        encoder_name, _ = ffmpeg_utils.get_video_encoder(speed_profile)
 
         # Exibir informações sobre o hardware e codificador
         if gpu_vendor == "amd" and encoder_name == "h264_amf":
@@ -1141,11 +1423,29 @@ class VideoCutterApp(QMainWindow):
             QMessageBox.warning(self, "Aviso", "Formato de cor inválido. Use o formato 0xRRGGBB (ex: 0x00d600).")
             return
 
-        # Criar e iniciar a thread de processamento
-        self.worker = VideoCutterWorker(
+        # Definir o intervalo de reinicialização com base no perfil de velocidade
+        # Para o perfil rápido, reiniciar após menos partes para manter a velocidade alta
+        if speed_profile_index == 0:  # Rápido
+            restart_interval = 5  # Reiniciar a cada 5 partes
+        elif speed_profile_index == 1:  # Balanceado
+            restart_interval = 7  # Reiniciar a cada 7 partes
+        else:  # Alta Qualidade
+            restart_interval = 10  # Reiniciar a cada 10 partes
+
+        self.log(f"- Reinicialização automática do FFmpeg a cada {restart_interval} partes para manter a velocidade")
+
+
+
+        # Obter o número de processos paralelos
+        parallel_count = self.parallel_count.value()
+        self.log(f"- Processamento paralelo: {parallel_count} processos simultâneos")
+
+        # Criar e iniciar o processador paralelo
+        self.worker = ParallelProcessor(
             input_file, image_file, selo_file, output_prefix,
             start_index, min_duration, max_duration, output_directory,
-            chroma_color, similarity, blend
+            chroma_color, similarity, blend, speed_profile, restart_interval,
+            parallel_count
         )
 
         # Conectar os sinais
@@ -1158,7 +1458,7 @@ class VideoCutterApp(QMainWindow):
         # Conectar o botão de cancelar
         self.cancel_button.clicked.connect(self.cancel_process)
 
-        # Iniciar a thread
+        # Iniciar o thread
         self.worker.start()
 
     def update_progress(self, value):
@@ -1210,7 +1510,7 @@ class VideoCutterApp(QMainWindow):
             if reply == QMessageBox.Yes:
                 self.log("Cancelando processo...")
                 self.status_area.clear()  # Limpar a área de status
-                self.worker.stop()
+                self.worker.stop()  # Isso irá parar todos os workers no ParallelProcessor
                 self.start_button.setEnabled(True)
                 self.cancel_button.setEnabled(False)
 
