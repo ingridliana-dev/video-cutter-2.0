@@ -899,9 +899,11 @@ class VideoCutterApp(QMainWindow):
     def initUI(self):
         # Configurar a janela principal
         self.setWindowTitle("Video Cutter")
-        self.setGeometry(100, 100, 600, 700)  # Aumentar o tamanho inicial da janela
-        # Permitir redimensionamento da janela
-        self.setMinimumSize(600, 500)  # Definir tamanho mínimo para evitar que a janela fique muito pequena
+        self.setGeometry(100, 100, 600, 500)  # Definir tamanho da janela para 600x500
+        # Definir tamanho fixo da janela
+        self.setFixedSize(600, 500)  # Impedir redimensionamento
+        # Impedir maximização
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowMaximizeButtonHint)
 
         # Definir o ícone da janela
         icon_path = "video-cutter-icone.png"
